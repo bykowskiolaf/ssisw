@@ -16,10 +16,18 @@ java {
 
 repositories {
     mavenCentral()
+    maven {
+        url = uri('https://jitpack.io')
+        content {
+            includeGroup 'com.gitlab.jade-project'
+        }
+    }
 }
 
 dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-elasticsearch'
+    implementation 'com.fasterxml.jackson.core:jackson-databind'
+    implementation 'com.gitlab.jade-project:jade:2026.02'
     testImplementation 'org.springframework.boot:spring-boot-starter-elasticsearch-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }

@@ -35,3 +35,8 @@ out/
 
 ### VS Code ###
 .vscode/
+
+### Generated datasets ###
+/data/
+/APDescription.txt
+/MTPs-Main-Container.txt
