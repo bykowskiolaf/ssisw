@@ -1,0 +1,28 @@
+{
+  "settings": {
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "runId": { "type": "keyword" },
+      "id": { "type": "keyword" },
+      "make": { "type": "keyword" },
+      "model": { "type": "keyword" },
+      "bodyType": { "type": "keyword" },
+      "fuelType": { "type": "keyword" },
+      "engineCapacityCc": { "type": "integer" },
+      "productionYear": { "type": "integer" },
+      "pricePln": { "type": "long" },
+      "additionalCostPln": { "type": "long" },
+      "totalCostPln": { "type": "long" },
+      "mileageKm": { "type": "integer" },
+      "powerHp": { "type": "integer" },
+      "fuelConsumptionLitresPer100Km": { "type": "double" },
+      "transmission": { "type": "keyword" },
+      "drivetrain": { "type": "keyword" },
+      "status": { "type": "keyword" },
+      "dataSource": { "type": "keyword", "ignore_above": 512 }
+    }
+  }
+}

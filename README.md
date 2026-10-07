@@ -33,11 +33,12 @@ Generate the dataset once, then start the simulation:
 ./gradlew bootRun --args='--simulation.enabled=true'
 ```
 
-The first milestone starts 10 seller agents, 5 buyer agents, and allocates 8 cars to every seller.
+The simulation starts 10 seller agents, 5 buyer agents, and allocates 8 cars to every seller.
 Buyers discover sellers through the JADE Directory Facilitator, request offers with ACL messages,
 compare total costs, reserve one available car, and complete one purchase. Broad shared preferences
 intentionally create competition; buyers whose reservation is rejected search again. The process
-prints a transaction summary and shuts down automatically.
+continues until every buyer has purchased three cars, then prints a 15-transaction summary and
+shuts down automatically.
 
 Enable JADE's management GUI when inspecting agents and messages manually:
 
@@ -47,3 +48,40 @@ Enable JADE's management GUI when inspecting agents and messages manually:
 
 The simulation currently uses `data/cars.json`. If it is absent, run the importer first. Useful
 settings are available under `simulation.*` in `application.properties`.
+
+## Elasticsearch and Kibana
+
+Start the local single-node Elastic stack:
+
+```shell
+docker compose up -d
+```
+
+Elasticsearch is available at `http://localhost:9200` and Kibana at `http://localhost:5601`.
+Security is disabled in this local development configuration; do not expose these ports publicly.
+
+Run the simulation with indexing enabled:
+
+```shell
+./gradlew bootRun --args='--simulation.enabled=true --marketplace.elasticsearch.enabled=true'
+```
+
+The application creates explicit mappings and writes:
+
+- `cars`: the 80 offers, with purchased cars updated to `SOLD`;
+- `transactions`: completed purchases with buyer, seller, total cost, and completion time.
+
+Every indexed simulation receives a unique `runId`. Car document IDs are also run-scoped, so runs
+can execute without overwriting each other and previous results remain available for trend analysis.
+Filter both Kibana data views by the same `runId` when presenting one simulation. The run ID is
+printed at startup.
+
+In Kibana, create data views named `cars` and `transactions`. Useful first visualizations are car
+counts by `make`, `bodyType`, and `fuelType`, production-year distribution, average
+`totalCostPln` by body type, and transactions over time using `completedAtEpochMillis`.
+
+Stop the local services without deleting their data:
+
+```shell
+docker compose down
+```

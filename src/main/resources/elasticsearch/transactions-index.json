@@ -1,0 +1,17 @@
+{
+  "settings": {
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "runId": { "type": "keyword" },
+      "id": { "type": "keyword" },
+      "carId": { "type": "keyword" },
+      "sellerName": { "type": "keyword" },
+      "buyerName": { "type": "keyword" },
+      "totalCostPln": { "type": "long" },
+      "completedAtEpochMillis": { "type": "date", "format": "epoch_millis" }
+    }
+  }
+}

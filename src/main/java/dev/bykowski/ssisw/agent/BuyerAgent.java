@@ -34,6 +34,7 @@ public class BuyerAgent extends Agent {
     private SearchCriteria criteria;
     private SimulationObserver observer;
     private int expectedSellerCount;
+    private int targetPurchases;
 
     @Override
     protected void setup() {
@@ -42,6 +43,7 @@ public class BuyerAgent extends Agent {
         criteria = (SearchCriteria) arguments[1];
         observer = (SimulationObserver) arguments[2];
         expectedSellerCount = (int) arguments[3];
+        targetPurchases = (int) arguments[4];
 
         addBehaviour(new TickerBehaviour(this, 100) {
             @Override
@@ -77,7 +79,9 @@ public class BuyerAgent extends Agent {
         private static final int WAITING_FOR_OFFERS = 0;
         private static final int WAITING_FOR_RESERVATION = 1;
         private static final int WAITING_FOR_PURCHASE = 2;
-        private static final int FINISHED = 3;
+        private static final int WAITING_TO_RETRY = 3;
+        private static final int FINISHED = 4;
+        private static final int MAX_RESERVATION_ATTEMPTS = 50;
 
         private final List<AID> sellers;
         private final List<CarOffer> offers = new ArrayList<>();
@@ -87,7 +91,9 @@ public class BuyerAgent extends Agent {
         private int state;
         private int replies;
         private int attempts;
+        private int completedPurchases;
         private long deadline;
+        private long retryAt;
         private CarOffer selectedOffer;
         private AID selectedSeller;
 
@@ -103,6 +109,7 @@ public class BuyerAgent extends Agent {
                 case WAITING_FOR_OFFERS -> collectOffers();
                 case WAITING_FOR_RESERVATION -> receiveReservation();
                 case WAITING_FOR_PURCHASE -> receivePurchase();
+                case WAITING_TO_RETRY -> retrySearchWhenReady();
                 default -> block();
             }
         }
@@ -211,6 +218,15 @@ public class BuyerAgent extends Agent {
                         response.getContent(), MarketplaceProtocol.PurchaseResponse.class).transaction();
                 account.pay(transaction.totalCostPln());
                 observer.purchaseCompleted(transaction, account.budgetPln());
+                completedPurchases++;
+                if (completedPurchases < targetPurchases) {
+                    attempts = 0;
+                    sendSearch();
+                    return;
+                }
+            } else if (completedPurchases < targetPurchases) {
+                retryOrFinish();
+                return;
             }
             finish();
         }
@@ -224,11 +240,23 @@ public class BuyerAgent extends Agent {
         }
 
         private void retryOrFinish() {
-            if (attempts < 10) {
-                sendSearch();
+            if (attempts < MAX_RESERVATION_ATTEMPTS) {
+                retryAt = System.currentTimeMillis()
+                        + 50
+                        + Math.floorMod(getLocalName().hashCode() + attempts * 31, 100);
+                state = WAITING_TO_RETRY;
             } else {
                 finish();
             }
+        }
+
+        private void retrySearchWhenReady() {
+            long waitMillis = retryAt - System.currentTimeMillis();
+            if (waitMillis > 0) {
+                block(waitMillis);
+                return;
+            }
+            sendSearch();
         }
 
         private void finish() {

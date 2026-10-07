@@ -4,6 +4,7 @@ import dev.bykowski.ssisw.agent.BuyerAgent;
 import dev.bykowski.ssisw.agent.SellerAgent;
 import dev.bykowski.ssisw.car.Car;
 import dev.bykowski.ssisw.data.CarDatasetReader;
+import dev.bykowski.ssisw.elasticsearch.ElasticsearchMarketplaceStore;
 import dev.bykowski.ssisw.market.CarStatus;
 import dev.bykowski.ssisw.market.SearchCriteria;
 import dev.bykowski.ssisw.market.SellerInventory;
@@ -18,6 +19,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationListener;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -39,23 +41,29 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
     private final CarDatasetReader datasetReader;
     private final Path datasetPath;
     private final long buyerBudgetPln;
+    private final int targetPurchasesPerBuyer;
     private final long reservationDurationMillis;
     private final Duration timeout;
     private final boolean jadeGui;
+    private final ObjectProvider<ElasticsearchMarketplaceStore> elasticsearchStore;
 
     public MarketplaceSimulationListener(
             CarDatasetReader datasetReader,
             @Value("${simulation.dataset-path:data/cars.json}") String datasetPath,
-            @Value("${simulation.buyer-budget-pln:300000}") long buyerBudgetPln,
+            @Value("${simulation.buyer-budget-pln:500000}") long buyerBudgetPln,
+            @Value("${simulation.target-purchases-per-buyer:3}") int targetPurchasesPerBuyer,
             @Value("${simulation.reservation-duration-ms:5000}") long reservationDurationMillis,
             @Value("${simulation.timeout-seconds:30}") long timeoutSeconds,
-            @Value("${simulation.jade-gui:false}") boolean jadeGui) {
+            @Value("${simulation.jade-gui:false}") boolean jadeGui,
+            ObjectProvider<ElasticsearchMarketplaceStore> elasticsearchStore) {
         this.datasetReader = datasetReader;
         this.datasetPath = Path.of(datasetPath);
         this.buyerBudgetPln = buyerBudgetPln;
+        this.targetPurchasesPerBuyer = targetPurchasesPerBuyer;
         this.reservationDurationMillis = reservationDurationMillis;
         this.timeout = Duration.ofSeconds(timeoutSeconds);
         this.jadeGui = jadeGui;
+        this.elasticsearchStore = elasticsearchStore;
     }
 
     @Override
@@ -66,8 +74,17 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
             throw new IllegalStateException("Simulation requires at least %d cars, but the dataset has %d"
                     .formatted(requiredCars, cars.size()));
         }
+        if (targetPurchasesPerBuyer < 1) {
+            throw new IllegalStateException("Target purchases per buyer must be positive");
+        }
 
-        SimulationObserver observer = new SimulationObserver(BUYER_COUNT);
+        ElasticsearchMarketplaceStore store = elasticsearchStore.getIfAvailable();
+        if (store != null) {
+            store.indexCars(cars.subList(0, requiredCars));
+            logger.info("Elasticsearch simulation run ID: {}", store.runId());
+        }
+        SimulationObserver observer = new SimulationObserver(
+                BUYER_COUNT, store == null ? MarketplaceEventSink.noop() : store);
         List<SellerInventory> inventories = createInventories(cars.subList(0, requiredCars));
         Runtime runtime = Runtime.instance();
         runtime.setCloseVM(true);
@@ -84,7 +101,7 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
                 observer.completion().get(timeout.toSeconds(), TimeUnit.SECONDS);
                 printSummary(inventories, observer);
             } catch (Exception exception) {
-                logger.error("Simulation did not complete within {} seconds", timeout.toSeconds(), exception);
+                logger.error("Simulation failed or did not complete within {} seconds", timeout.toSeconds(), exception);
             } finally {
                 try {
                     container.kill();
@@ -126,7 +143,7 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
                 container.createNewAgent(
                         buyerName,
                         BuyerAgent.class.getName(),
-                        new Object[]{buyerBudgetPln, criteria, observer, SELLER_COUNT})
+                        new Object[]{buyerBudgetPln, criteria, observer, SELLER_COUNT, targetPurchasesPerBuyer})
                         .start();
             }
         } catch (StaleProxyException exception) {

@@ -17,6 +17,7 @@ public class SimulationObserver {
     private static final Logger logger = LoggerFactory.getLogger(SimulationObserver.class);
 
     private final int expectedBuyers;
+    private final MarketplaceEventSink eventSink;
     private final AtomicInteger offersProposed = new AtomicInteger();
     private final AtomicInteger rejectedReservations = new AtomicInteger();
     private final List<Transaction> transactions = new CopyOnWriteArrayList<>();
@@ -25,7 +26,12 @@ public class SimulationObserver {
     private final CompletableFuture<Void> completion = new CompletableFuture<>();
 
     public SimulationObserver(int expectedBuyers) {
+        this(expectedBuyers, MarketplaceEventSink.noop());
+    }
+
+    public SimulationObserver(int expectedBuyers, MarketplaceEventSink eventSink) {
         this.expectedBuyers = expectedBuyers;
+        this.eventSink = eventSink;
     }
 
     public void searchStarted(String buyerName, int sellerCount) {
@@ -43,6 +49,12 @@ public class SimulationObserver {
     }
 
     public void purchaseCompleted(Transaction transaction, long remainingBudgetPln) {
+        try {
+            eventSink.recordTransaction(transaction);
+        } catch (RuntimeException exception) {
+            completion.completeExceptionally(exception);
+            throw exception;
+        }
         transactions.add(transaction);
         logger.info("PURCHASE: {} bought {} from {} for {} PLN; remaining budget: {} PLN",
                 transaction.buyerName(), transaction.carId(), transaction.sellerName(),
