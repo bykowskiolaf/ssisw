@@ -1,6 +1,7 @@
 package dev.bykowski.ssisw.simulation;
 
 import dev.bykowski.ssisw.market.Transaction;
+import dev.bykowski.ssisw.market.ScoredOffer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,6 +21,7 @@ public class SimulationObserver {
     private final MarketplaceEventSink eventSink;
     private final AtomicInteger offersProposed = new AtomicInteger();
     private final AtomicInteger rejectedReservations = new AtomicInteger();
+    private final AtomicInteger recommendationsGenerated = new AtomicInteger();
     private final List<Transaction> transactions = new CopyOnWriteArrayList<>();
     private final Set<String> completedBuyers = ConcurrentHashMap.newKeySet();
     private final Map<String, Long> remainingBudgets = new ConcurrentHashMap<>();
@@ -48,6 +50,16 @@ public class SimulationObserver {
         logger.info("{} could not reserve {}; searching again", buyerName, carId);
     }
 
+    public void recommendationGenerated(String buyerName, List<ScoredOffer> recommendations) {
+        recommendationsGenerated.incrementAndGet();
+        String topCars = recommendations.stream()
+                .map(recommendation -> "%s (%.3f)".formatted(
+                        recommendation.offer().car().id(), recommendation.score()))
+                .reduce((left, right) -> left + ", " + right)
+                .orElse("none");
+        logger.info("Advisor TOP {} for {}: {}", recommendations.size(), buyerName, topCars);
+    }
+
     public void purchaseCompleted(Transaction transaction, long remainingBudgetPln) {
         try {
             eventSink.recordTransaction(transaction);
@@ -69,6 +81,11 @@ public class SimulationObserver {
         }
     }
 
+    public void simulationFailed(String agentName, String message) {
+        completion.completeExceptionally(
+                new IllegalStateException(agentName + ": " + message));
+    }
+
     public CompletableFuture<Void> completion() {
         return completion;
     }
@@ -79,6 +96,10 @@ public class SimulationObserver {
 
     public int rejectedReservations() {
         return rejectedReservations.get();
+    }
+
+    public int recommendationsGenerated() {
+        return recommendationsGenerated.get();
     }
 
     public List<Transaction> transactions() {

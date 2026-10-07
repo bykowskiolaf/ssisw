@@ -35,10 +35,15 @@ Generate the dataset once, then start the simulation:
 
 The simulation starts 10 seller agents, 5 buyer agents, and allocates 8 cars to every seller.
 Buyers discover sellers through the JADE Directory Facilitator, request offers with ACL messages,
-compare total costs, reserve one available car, and complete one purchase. Broad shared preferences
+send eligible offers to an independent advisor, reserve the highest-ranked car, and complete a
+purchase. The advisor returns TOP 3 using normalized MCDA weights: price 30%, production year 20%,
+total cost 15%, fuel type 10%, engine capacity 10%, and fuel consumption 15%. Broad shared preferences
 intentionally create competition; buyers whose reservation is rejected search again. The process
 continues until every buyer has purchased three cars, then prints a 15-transaction summary and
 shuts down automatically.
+
+When no fuel type is explicitly requested, the fuel criterion prefers electric, hybrid, petrol,
+then diesel vehicles. When a fuel type is requested, it remains a mandatory filter.
 
 Enable JADE's management GUI when inspecting agents and messages manually:
 
