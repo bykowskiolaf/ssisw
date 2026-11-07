@@ -4,6 +4,7 @@ import dev.bykowski.ssisw.car.Car;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -67,14 +68,32 @@ class RecommendationServiceTests {
                 .containsExactly("CAR-001");
     }
 
+    @Test
+    void sellerReputationBreaksTiesBetweenEquivalentOffers() {
+        CarOffer lowReputation = offer("CAR-001", "SUV", "PETROL", 120_000, "Seller01");
+        CarOffer highReputation = offer("CAR-002", "SUV", "PETROL", 120_000, "Seller02");
+
+        List<ScoredOffer> recommendations = recommendationService.recommendTop3(
+                List.of(lowReputation, highReputation),
+                new SearchCriteria("SUV", "PETROL", 2020, 200_000),
+                Map.of("Seller01", 3.0, "Seller02", 5.0));
+
+        assertThat(recommendations).extracting(scored -> scored.offer().sellerName())
+                .containsExactly("Seller02", "Seller01");
+    }
+
     private CarOffer offer(String id, String bodyType, long totalCost) {
         return offer(id, bodyType, "PETROL", totalCost);
     }
 
     private CarOffer offer(String id, String bodyType, String fuelType, long totalCost) {
+        return offer(id, bodyType, fuelType, totalCost, "Seller01");
+    }
+
+    private CarOffer offer(String id, String bodyType, String fuelType, long totalCost, String seller) {
         Car car = new Car(id, "Toyota", "RAV4", bodyType, fuelType, 1998,
                 2024, totalCost - 2_000, 2_000, totalCost, 20_000, 180,
                 7.0, "AUTOMATIC", "AWD", "AVAILABLE", "test");
-        return new CarOffer("Seller01", car);
+        return new CarOffer(seller, car);
     }
 }

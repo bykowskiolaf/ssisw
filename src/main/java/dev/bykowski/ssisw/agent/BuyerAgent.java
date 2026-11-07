@@ -8,6 +8,8 @@ import dev.bykowski.ssisw.market.SearchCriteria;
 import dev.bykowski.ssisw.market.ScoredOffer;
 import dev.bykowski.ssisw.market.NegotiationResult;
 import dev.bykowski.ssisw.market.NegotiationService;
+import dev.bykowski.ssisw.market.SaleRecord;
+import dev.bykowski.ssisw.market.SellerReputation;
 import dev.bykowski.ssisw.market.Transaction;
 import dev.bykowski.ssisw.simulation.SimulationObserver;
 import jade.core.AID;
@@ -24,6 +26,7 @@ import jade.lang.acl.MessageTemplate;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -55,13 +58,17 @@ public class BuyerAgent extends Agent {
                 List<AID> sellers = findSellers();
                 Optional<AID> advisor = findAdvisor();
                 Optional<AID> negotiator = findService(MarketplaceProtocol.NEGOTIATOR_SERVICE);
-                if (sellers.size() >= expectedSellerCount && advisor.isPresent() && negotiator.isPresent()) {
+                Optional<AID> reputation = findService(MarketplaceProtocol.REPUTATION_SERVICE);
+                Optional<AID> trend = findService(MarketplaceProtocol.TREND_SERVICE);
+                if (sellers.size() >= expectedSellerCount && advisor.isPresent() && negotiator.isPresent()
+                        && reputation.isPresent() && trend.isPresent()) {
                     stop();
                     addBehaviour(new PurchaseFlowBehaviour(
-                            sellers, advisor.orElseThrow(), negotiator.orElseThrow()));
+                            sellers, advisor.orElseThrow(), negotiator.orElseThrow(),
+                            reputation.orElseThrow(), trend.orElseThrow()));
                 } else if (System.currentTimeMillis() >= discoveryDeadline) {
                     stop();
-                    observer.simulationFailed(getLocalName(), "seller, advisor, or negotiator discovery timed out");
+                    observer.simulationFailed(getLocalName(), "required marketplace agent discovery timed out");
                     doDelete();
                 }
             }
@@ -105,17 +112,22 @@ public class BuyerAgent extends Agent {
     private final class PurchaseFlowBehaviour extends Behaviour {
 
         private static final int WAITING_FOR_OFFERS = 0;
-        private static final int WAITING_FOR_RECOMMENDATION = 1;
-        private static final int WAITING_FOR_NEGOTIATION = 2;
-        private static final int WAITING_FOR_RESERVATION = 3;
-        private static final int WAITING_FOR_PURCHASE = 4;
-        private static final int WAITING_TO_RETRY = 5;
-        private static final int FINISHED = 6;
+        private static final int WAITING_FOR_REPUTATION = 1;
+        private static final int WAITING_FOR_RECOMMENDATION = 2;
+        private static final int WAITING_FOR_NEGOTIATION = 3;
+        private static final int WAITING_FOR_RESERVATION = 4;
+        private static final int WAITING_FOR_PURCHASE = 5;
+        private static final int WAITING_FOR_RATING = 6;
+        private static final int WAITING_FOR_TREND = 7;
+        private static final int WAITING_TO_RETRY = 8;
+        private static final int FINISHED = 9;
         private static final int MAX_RESERVATION_ATTEMPTS = 50;
 
         private final List<AID> sellers;
         private final AID advisor;
         private final AID negotiator;
+        private final AID reputationAgent;
+        private final AID trendAgent;
         private final List<CarOffer> offers = new ArrayList<>();
         private final Set<String> respondingSellers = new HashSet<>();
         private String conversationId;
@@ -130,12 +142,21 @@ public class BuyerAgent extends Agent {
         private AID selectedSeller;
         private SearchCriteria activeCriteria;
         private long agreedTotalPln;
+        private Map<String, Double> sellerReputations = Map.of();
+        private Transaction completedTransaction;
 
-        private PurchaseFlowBehaviour(List<AID> sellers, AID advisor, AID negotiator) {
+        private PurchaseFlowBehaviour(
+                List<AID> sellers,
+                AID advisor,
+                AID negotiator,
+                AID reputationAgent,
+                AID trendAgent) {
             super(BuyerAgent.this);
             this.sellers = sellers;
             this.advisor = advisor;
             this.negotiator = negotiator;
+            this.reputationAgent = reputationAgent;
+            this.trendAgent = trendAgent;
             sendSearch();
         }
 
@@ -143,10 +164,13 @@ public class BuyerAgent extends Agent {
         public void action() {
             switch (state) {
                 case WAITING_FOR_OFFERS -> collectOffers();
+                case WAITING_FOR_REPUTATION -> receiveReputation();
                 case WAITING_FOR_RECOMMENDATION -> receiveRecommendation();
                 case WAITING_FOR_NEGOTIATION -> receiveNegotiation();
                 case WAITING_FOR_RESERVATION -> receiveReservation();
                 case WAITING_FOR_PURCHASE -> receivePurchase();
+                case WAITING_FOR_RATING -> receiveRating();
+                case WAITING_FOR_TREND -> receiveTrend();
                 case WAITING_TO_RETRY -> retrySearchWhenReady();
                 default -> block();
             }
@@ -189,10 +213,48 @@ public class BuyerAgent extends Agent {
                     fail("no affordable offers before reaching the purchase target");
                     return;
                 }
-                sendRecommendationRequest();
+                sendReputationQuery();
                 return;
             }
             block(25);
+        }
+
+        private void sendReputationQuery() {
+            ACLMessage request = new ACLMessage(ACLMessage.QUERY_REF);
+            request.addReceiver(reputationAgent);
+            request.setOntology(MarketplaceProtocol.REPUTATION_QUERY);
+            request.setConversationId(conversationId);
+            expectedReplyToken = UUID.randomUUID().toString();
+            request.setReplyWith(expectedReplyToken);
+            request.setContent(codec.encode(new MarketplaceProtocol.ReputationQuery(
+                    offers.stream().map(CarOffer::sellerName).distinct().toList())));
+            send(request);
+            deadline = System.currentTimeMillis() + 1_500;
+            state = WAITING_FOR_REPUTATION;
+        }
+
+        private void receiveReputation() {
+            ACLMessage response = receive(MessageTemplate.and(
+                    phaseTemplate(MarketplaceProtocol.REPUTATION_QUERY),
+                    MessageTemplate.MatchSender(reputationAgent)));
+            if (response == null) {
+                waitOrFail("reputation query timed out");
+                return;
+            }
+            if (response.getPerformative() != ACLMessage.INFORM) {
+                fail("reputation query failed");
+                return;
+            }
+            try {
+                Map<String, SellerReputation> reputations = codec.decode(
+                        response.getContent(), MarketplaceProtocol.ReputationResponse.class).reputations();
+                sellerReputations = reputations.entrySet().stream().collect(
+                        java.util.stream.Collectors.toUnmodifiableMap(
+                                Map.Entry::getKey, entry -> entry.getValue().averageRating()));
+                sendRecommendationRequest();
+            } catch (RuntimeException exception) {
+                fail("cannot process reputation response: " + exception.getMessage());
+            }
         }
 
         private void sendRecommendationRequest() {
@@ -203,7 +265,8 @@ public class BuyerAgent extends Agent {
             expectedReplyToken = UUID.randomUUID().toString();
             request.setReplyWith(expectedReplyToken);
             request.setContent(codec.encode(
-                    new MarketplaceProtocol.RecommendationRequest(List.copyOf(offers), activeCriteria)));
+                    new MarketplaceProtocol.RecommendationRequest(
+                            List.copyOf(offers), activeCriteria, sellerReputations)));
             send(request);
             deadline = System.currentTimeMillis() + 1_500;
             state = WAITING_FOR_RECOMMENDATION;
@@ -381,16 +444,86 @@ public class BuyerAgent extends Agent {
                 account.pay(transaction.totalCostPln());
                 observer.purchaseCompleted(transaction, account.budgetPln());
                 completedPurchases++;
-                if (completedPurchases < targetPurchases) {
-                    attempts = 0;
-                    sendSearch();
-                    return;
-                }
+                completedTransaction = transaction;
+                sendRating();
+                return;
             } else if (completedPurchases < targetPurchases) {
                 retryOrFinish();
                 return;
             }
             finish();
+        }
+
+        private void sendRating() {
+            int rating = 3 + Math.floorMod(completedTransaction.id().hashCode(), 3);
+            ACLMessage request = new ACLMessage(ACLMessage.INFORM);
+            request.addReceiver(reputationAgent);
+            request.setOntology(MarketplaceProtocol.RATING);
+            request.setConversationId(conversationId);
+            expectedReplyToken = UUID.randomUUID().toString();
+            request.setReplyWith(expectedReplyToken);
+            request.setContent(codec.encode(new MarketplaceProtocol.RatingRequest(
+                    completedTransaction.id(), completedTransaction.sellerName(), getLocalName(), rating)));
+            send(request);
+            deadline = System.currentTimeMillis() + 1_500;
+            state = WAITING_FOR_RATING;
+        }
+
+        private void receiveRating() {
+            ACLMessage response = receive(MessageTemplate.and(
+                    phaseTemplate(MarketplaceProtocol.RATING),
+                    MessageTemplate.MatchSender(reputationAgent)));
+            if (response == null) {
+                waitOrFail("rating acknowledgement timed out");
+                return;
+            }
+            if (response.getPerformative() != ACLMessage.INFORM) {
+                fail("rating was rejected");
+                return;
+            }
+            sendSaleEvent();
+        }
+
+        private void sendSaleEvent() {
+            ACLMessage request = new ACLMessage(ACLMessage.INFORM);
+            request.addReceiver(trendAgent);
+            request.setOntology(MarketplaceProtocol.SALE_EVENT);
+            request.setConversationId(conversationId);
+            expectedReplyToken = UUID.randomUUID().toString();
+            request.setReplyWith(expectedReplyToken);
+            request.setContent(codec.encode(new MarketplaceProtocol.SaleEventRequest(
+                    getLocalName(), new SaleRecord(completedTransaction, selectedOffer.car()))));
+            send(request);
+            deadline = System.currentTimeMillis() + 1_500;
+            state = WAITING_FOR_TREND;
+        }
+
+        private void receiveTrend() {
+            ACLMessage response = receive(MessageTemplate.and(
+                    phaseTemplate(MarketplaceProtocol.SALE_EVENT),
+                    MessageTemplate.MatchSender(trendAgent)));
+            if (response == null) {
+                waitOrFail("trend acknowledgement timed out");
+                return;
+            }
+            if (response.getPerformative() != ACLMessage.INFORM) {
+                fail("sale event was rejected");
+                return;
+            }
+            if (completedPurchases < targetPurchases) {
+                attempts = 0;
+                sendSearch();
+            } else {
+                finish();
+            }
+        }
+
+        private void waitOrFail(String timeoutMessage) {
+            if (System.currentTimeMillis() >= deadline) {
+                fail(timeoutMessage);
+            } else {
+                block(25);
+            }
         }
 
         private MessageTemplate phaseTemplate(String ontology) {

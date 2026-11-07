@@ -48,7 +48,7 @@ public class AdvisorAgent extends Agent {
             MarketplaceProtocol.RecommendationRequest payload = codec.decode(
                     request.getContent(), MarketplaceProtocol.RecommendationRequest.class);
             List<ScoredOffer> recommendations = recommendationService.recommendTop3(
-                    payload.offers(), payload.criteria());
+                    payload.offers(), payload.criteria(), payload.sellerReputations());
             observer.recommendationGenerated(
                     request.getSender().getLocalName(), recommendations);
             response.setPerformative(ACLMessage.INFORM);

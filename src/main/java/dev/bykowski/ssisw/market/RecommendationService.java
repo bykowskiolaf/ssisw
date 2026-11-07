@@ -4,6 +4,7 @@ import dev.bykowski.ssisw.car.Car;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.function.ToDoubleFunction;
 
 public class RecommendationService {
@@ -16,6 +17,13 @@ public class RecommendationService {
     private static final double CONSUMPTION_WEIGHT = 0.15;
 
     public List<ScoredOffer> recommendTop3(List<CarOffer> offers, SearchCriteria criteria) {
+        return recommendTop3(offers, criteria, Map.of());
+    }
+
+    public List<ScoredOffer> recommendTop3(
+            List<CarOffer> offers,
+            SearchCriteria criteria,
+            Map<String, Double> sellerReputations) {
         List<CarOffer> eligible = offers.stream()
                 .filter(offer -> criteria.matches(offer.car()))
                 .toList();
@@ -39,6 +47,10 @@ public class RecommendationService {
                                 + lowerIsBetter(offer.car().fuelConsumptionLitresPer100Km(), consumption)
                                 * CONSUMPTION_WEIGHT))
                 .sorted(Comparator.comparingDouble(ScoredOffer::score).reversed()
+                        .thenComparing(
+                                (ScoredOffer scored) -> sellerReputations.getOrDefault(
+                                        scored.offer().sellerName(), 0.0),
+                                Comparator.reverseOrder())
                         .thenComparingLong(scored -> scored.offer().car().totalCostPln())
                         .thenComparing(scored -> scored.offer().car().id()))
                 .limit(3)

@@ -3,6 +3,8 @@ package dev.bykowski.ssisw.simulation;
 import dev.bykowski.ssisw.market.Transaction;
 import dev.bykowski.ssisw.market.ScoredOffer;
 import dev.bykowski.ssisw.market.NegotiationResult;
+import dev.bykowski.ssisw.market.MarketTrendSnapshot;
+import dev.bykowski.ssisw.market.SellerReputation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -25,6 +27,8 @@ public class SimulationObserver {
     private final AtomicInteger recommendationsGenerated = new AtomicInteger();
     private final AtomicInteger negotiationsAccepted = new AtomicInteger();
     private final AtomicInteger negotiationsRejected = new AtomicInteger();
+    private final AtomicInteger ratingsRecorded = new AtomicInteger();
+    private volatile MarketTrendSnapshot latestTrend;
     private final List<Transaction> transactions = new CopyOnWriteArrayList<>();
     private final Set<String> completedBuyers = ConcurrentHashMap.newKeySet();
     private final Map<String, Long> remainingBudgets = new ConcurrentHashMap<>();
@@ -75,6 +79,25 @@ public class SimulationObserver {
         }
     }
 
+    public void ratingRecorded(
+            String buyerName,
+            String sellerName,
+            int rating,
+            SellerReputation reputation) {
+        ratingsRecorded.incrementAndGet();
+        logger.info("RATING: {} rated {} with {}/5; reputation {} from {} rating(s)",
+                buyerName, sellerName, rating,
+                "%.2f".formatted(reputation.averageRating()), reputation.ratingCount());
+    }
+
+    public void trendUpdated(MarketTrendSnapshot snapshot) {
+        latestTrend = snapshot;
+        logger.info("TREND: {} sales, popular body {}, model {}, fuel {}, average {} PLN, {}",
+                snapshot.totalSales(), snapshot.mostPopularBodyType(), snapshot.mostPopularModel(),
+                snapshot.mostPopularFuelType(),
+                "%.2f".formatted(snapshot.averageTransactionPricePln()), snapshot.priceTrend());
+    }
+
     public void purchaseCompleted(Transaction transaction, long remainingBudgetPln) {
         try {
             eventSink.recordTransaction(transaction);
@@ -94,6 +117,17 @@ public class SimulationObserver {
         if (completedBuyers.size() == expectedBuyers) {
             completion.complete(null);
         }
+    }
+
+    public boolean hasCompletedTransaction(String transactionId, String buyerName, String sellerName) {
+        return transactions.stream().anyMatch(transaction ->
+                transaction.id().equals(transactionId)
+                        && transaction.buyerName().equals(buyerName)
+                        && transaction.sellerName().equals(sellerName));
+    }
+
+    public boolean hasCompletedTransaction(Transaction candidate) {
+        return transactions.contains(candidate);
     }
 
     public void simulationFailed(String agentName, String message) {
@@ -123,6 +157,14 @@ public class SimulationObserver {
 
     public int negotiationsRejected() {
         return negotiationsRejected.get();
+    }
+
+    public int ratingsRecorded() {
+        return ratingsRecorded.get();
+    }
+
+    public MarketTrendSnapshot latestTrend() {
+        return latestTrend;
     }
 
     public List<Transaction> transactions() {

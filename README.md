@@ -51,6 +51,11 @@ ends with acceptance or rejection after at most three rounds. Additional costs a
 The seller independently validates the agreed total, and that amount is used for the transaction
 and buyer budget deduction.
 
+After every purchase, the buyer sends one rating from 1 to 5 to `ReputationAgent`. Duplicate
+transaction ratings are rejected, averages are recalculated, and seller reputation is used as a
+tie-breaker by the advisor. `TrendAgent` receives each completed sale and reports the most popular
+body type, model and fuel type, average transaction price, and a rising/falling/stable price trend.
+
 Enable JADE's management GUI when inspecting agents and messages manually:
 
 ```shell
