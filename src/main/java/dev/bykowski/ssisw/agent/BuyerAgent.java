@@ -10,6 +10,7 @@ import dev.bykowski.ssisw.market.NegotiationResult;
 import dev.bykowski.ssisw.market.NegotiationService;
 import dev.bykowski.ssisw.market.SaleRecord;
 import dev.bykowski.ssisw.market.SellerReputation;
+import dev.bykowski.ssisw.market.ReturnResult;
 import dev.bykowski.ssisw.market.Transaction;
 import dev.bykowski.ssisw.simulation.SimulationObserver;
 import jade.core.AID;
@@ -41,6 +42,7 @@ public class BuyerAgent extends Agent {
     private int expectedSellerCount;
     private int targetPurchases;
     private long discoveryDeadline;
+    private boolean demonstrateReturn;
 
     @Override
     protected void setup() {
@@ -50,6 +52,7 @@ public class BuyerAgent extends Agent {
         observer = (SimulationObserver) arguments[2];
         expectedSellerCount = (int) arguments[3];
         targetPurchases = (int) arguments[4];
+        demonstrateReturn = (boolean) arguments[5] && "Buyer01".equals(getLocalName());
         discoveryDeadline = System.currentTimeMillis() + 5_000;
 
         addBehaviour(new TickerBehaviour(this, 100) {
@@ -117,10 +120,11 @@ public class BuyerAgent extends Agent {
         private static final int WAITING_FOR_NEGOTIATION = 3;
         private static final int WAITING_FOR_RESERVATION = 4;
         private static final int WAITING_FOR_PURCHASE = 5;
-        private static final int WAITING_FOR_RATING = 6;
-        private static final int WAITING_FOR_TREND = 7;
-        private static final int WAITING_TO_RETRY = 8;
-        private static final int FINISHED = 9;
+        private static final int WAITING_FOR_RETURN = 6;
+        private static final int WAITING_FOR_RATING = 7;
+        private static final int WAITING_FOR_TREND = 8;
+        private static final int WAITING_TO_RETRY = 9;
+        private static final int FINISHED = 10;
         private static final int MAX_RESERVATION_ATTEMPTS = 50;
 
         private final List<AID> sellers;
@@ -144,6 +148,7 @@ public class BuyerAgent extends Agent {
         private long agreedTotalPln;
         private Map<String, Double> sellerReputations = Map.of();
         private Transaction completedTransaction;
+        private boolean returnAttempted;
 
         private PurchaseFlowBehaviour(
                 List<AID> sellers,
@@ -169,6 +174,7 @@ public class BuyerAgent extends Agent {
                 case WAITING_FOR_NEGOTIATION -> receiveNegotiation();
                 case WAITING_FOR_RESERVATION -> receiveReservation();
                 case WAITING_FOR_PURCHASE -> receivePurchase();
+                case WAITING_FOR_RETURN -> receiveReturn();
                 case WAITING_FOR_RATING -> receiveRating();
                 case WAITING_FOR_TREND -> receiveTrend();
                 case WAITING_TO_RETRY -> retrySearchWhenReady();
@@ -443,15 +449,63 @@ public class BuyerAgent extends Agent {
                         response.getContent(), MarketplaceProtocol.PurchaseResponse.class).transaction();
                 account.pay(transaction.totalCostPln());
                 observer.purchaseCompleted(transaction, account.budgetPln());
-                completedPurchases++;
                 completedTransaction = transaction;
-                sendRating();
+                if (demonstrateReturn && !returnAttempted) {
+                    returnAttempted = true;
+                    sendReturn();
+                } else {
+                    completeKeptPurchase();
+                }
                 return;
             } else if (completedPurchases < targetPurchases) {
                 retryOrFinish();
                 return;
             }
             finish();
+        }
+
+        private void sendReturn() {
+            ACLMessage request = new ACLMessage(ACLMessage.REQUEST);
+            request.addReceiver(selectedSeller);
+            request.setOntology(MarketplaceProtocol.RETURN);
+            request.setConversationId(conversationId);
+            expectedReplyToken = UUID.randomUUID().toString();
+            request.setReplyWith(expectedReplyToken);
+            request.setContent(codec.encode(new MarketplaceProtocol.ReturnRequest(
+                    completedTransaction.id(), getLocalName())));
+            send(request);
+            deadline = System.currentTimeMillis() + 1_500;
+            state = WAITING_FOR_RETURN;
+        }
+
+        private void receiveReturn() {
+            ACLMessage response = receive(MessageTemplate.and(
+                    phaseTemplate(MarketplaceProtocol.RETURN),
+                    MessageTemplate.MatchSender(selectedSeller)));
+            if (response == null) {
+                waitOrFail("return response timed out");
+                return;
+            }
+            if (response.getPerformative() == ACLMessage.INFORM) {
+                ReturnResult result = codec.decode(
+                        response.getContent(), MarketplaceProtocol.ReturnResponse.class).result();
+                if (result == null || !result.accepted()
+                        || !completedTransaction.equals(result.transaction())) {
+                    fail("seller returned an invalid return confirmation");
+                    return;
+                }
+                account.refund(result.transaction().totalCostPln());
+                observer.returnCompleted(result, account.budgetPln());
+                attempts = 0;
+                sendSearch();
+                return;
+            }
+            completeKeptPurchase();
+        }
+
+        private void completeKeptPurchase() {
+            completedPurchases++;
+            sendRating();
         }
 
         private void sendRating() {

@@ -77,13 +77,40 @@ public class SellerInventory {
         item.reservedBy = null;
         item.reservedUntilEpochMillis = 0;
         item.reservedTotalCostPln = 0;
-        return Optional.of(new Transaction(
+        Transaction transaction = new Transaction(
                 UUID.randomUUID().toString(),
                 carId,
                 sellerName,
                 buyerName,
                 transactionTotalCostPln,
-                clock.millis()));
+                clock.millis());
+        item.lastTransaction = transaction;
+        return Optional.of(transaction);
+    }
+
+    public synchronized ReturnResult returnCar(
+            String transactionId,
+            String buyerName,
+            long returnWindowMillis) {
+        InventoryItem item = items.values().stream()
+                .filter(candidate -> candidate.lastTransaction != null)
+                .filter(candidate -> candidate.lastTransaction.id().equals(transactionId))
+                .findFirst()
+                .orElse(null);
+        if (item == null || item.status != CarStatus.SOLD) {
+            return new ReturnResult(false, null, clock.millis(), "UNKNOWN_TRANSACTION");
+        }
+        Transaction transaction = item.lastTransaction;
+        if (!transaction.buyerName().equals(buyerName)) {
+            return new ReturnResult(false, transaction, clock.millis(), "BUYER_ID_MISMATCH");
+        }
+        long now = clock.millis();
+        if (now - transaction.completedAtEpochMillis() > returnWindowMillis) {
+            return new ReturnResult(false, transaction, now, "RETURN_WINDOW_EXPIRED");
+        }
+        item.status = CarStatus.AVAILABLE;
+        item.lastTransaction = null;
+        return new ReturnResult(true, transaction, now, "RETURNED");
     }
 
     public synchronized void releaseExpiredReservations() {
@@ -113,6 +140,7 @@ public class SellerInventory {
         private String reservedBy;
         private long reservedUntilEpochMillis;
         private long reservedTotalCostPln;
+        private Transaction lastTransaction;
 
         private InventoryItem(Car car) {
             this.car = car;

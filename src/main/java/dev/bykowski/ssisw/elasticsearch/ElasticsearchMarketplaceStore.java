@@ -10,6 +10,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.bykowski.ssisw.car.Car;
 import dev.bykowski.ssisw.market.Transaction;
+import dev.bykowski.ssisw.market.ReturnResult;
 import dev.bykowski.ssisw.simulation.MarketplaceEventSink;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,6 +51,11 @@ public class ElasticsearchMarketplaceStore implements MarketplaceEventSink {
         try {
             ensureIndex(carsIndex, "elasticsearch/cars-index.json");
             ensureIndex(transactionsIndex, "elasticsearch/transactions-index.json");
+            client.indices().putMapping(mapping -> mapping
+                    .index(transactionsIndex)
+                    .properties("status", property -> property.keyword(keyword -> keyword))
+                    .properties("returnedAtEpochMillis", property -> property.date(
+                            date -> date.format("epoch_millis"))));
             BulkRequest.Builder bulk = new BulkRequest.Builder();
             cars.forEach(car -> bulk.operations(operation -> operation.index(index -> index
                     .index(carsIndex)
@@ -72,7 +78,7 @@ public class ElasticsearchMarketplaceStore implements MarketplaceEventSink {
                 client.index(index -> index
                         .index(transactionsIndex)
                         .id(documentId(transaction.id()))
-                        .document(documentWithRunId(transaction)));
+                        .document(transactionDocument(transaction, "COMPLETED")));
                 client.update(update -> update
                                 .index(carsIndex)
                                 .id(documentId(transaction.carId()))
@@ -82,6 +88,33 @@ public class ElasticsearchMarketplaceStore implements MarketplaceEventSink {
             } catch (IOException | ElasticsearchException exception) {
                 if (attempt == 3) {
                     throw new IllegalStateException("Cannot reconcile transaction " + transaction.id(), exception);
+                }
+                sleepBeforeRetry(attempt);
+            }
+        }
+    }
+
+    @Override
+    public void recordReturn(ReturnResult result) {
+        Transaction transaction = result.transaction();
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                client.update(update -> update
+                                .index(transactionsIndex)
+                                .id(documentId(transaction.id()))
+                                .doc(Map.of(
+                                        "status", "RETURNED",
+                                        "returnedAtEpochMillis", result.returnedAtEpochMillis())),
+                        Map.class);
+                client.update(update -> update
+                                .index(carsIndex)
+                                .id(documentId(transaction.carId()))
+                                .doc(Map.of("status", "AVAILABLE")),
+                        Map.class);
+                return;
+            } catch (IOException | ElasticsearchException exception) {
+                if (attempt == 3) {
+                    throw new IllegalStateException("Cannot persist return " + transaction.id(), exception);
                 }
                 sleepBeforeRetry(attempt);
             }
@@ -116,6 +149,12 @@ public class ElasticsearchMarketplaceStore implements MarketplaceEventSink {
         Map<String, Object> document = new LinkedHashMap<>(
                 objectMapper.convertValue(source, new TypeReference<>() { }));
         document.put("runId", runId);
+        return document;
+    }
+
+    private Map<String, Object> transactionDocument(Transaction transaction, String status) {
+        Map<String, Object> document = documentWithRunId(transaction);
+        document.put("status", status);
         return document;
     }
 

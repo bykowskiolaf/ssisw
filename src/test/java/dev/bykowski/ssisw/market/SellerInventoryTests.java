@@ -72,6 +72,36 @@ class SellerInventoryTests {
         assertThat(transaction.totalCostPln()).isEqualTo(133_500);
     }
 
+    @Test
+    void acceptsTimelyReturnAndMakesCarAvailable() {
+        MutableClock clock = new MutableClock();
+        SellerInventory inventory = new SellerInventory("Seller01", List.of(car()), clock);
+        inventory.reserve("CAR-001", "Buyer01", 133_500, 5_000);
+        Transaction transaction = inventory.purchase("CAR-001", "Buyer01").orElseThrow();
+        clock.advanceMillis(4_999);
+
+        ReturnResult result = inventory.returnCar(transaction.id(), "Buyer01", 5_000);
+
+        assertThat(result.accepted()).isTrue();
+        assertThat(result.transaction()).isEqualTo(transaction);
+        assertThat(inventory.count(CarStatus.AVAILABLE)).isOne();
+    }
+
+    @Test
+    void rejectsReturnAfterWindowExpires() {
+        MutableClock clock = new MutableClock();
+        SellerInventory inventory = new SellerInventory("Seller01", List.of(car()), clock);
+        inventory.reserve("CAR-001", "Buyer01", 133_500, 5_000);
+        Transaction transaction = inventory.purchase("CAR-001", "Buyer01").orElseThrow();
+        clock.advanceMillis(5_001);
+
+        ReturnResult result = inventory.returnCar(transaction.id(), "Buyer01", 5_000);
+
+        assertThat(result.accepted()).isFalse();
+        assertThat(result.message()).isEqualTo("RETURN_WINDOW_EXPIRED");
+        assertThat(inventory.count(CarStatus.SOLD)).isOne();
+    }
+
     private Car car() {
         return car("CAR-001", "SUV", "PETROL", 2024, 145_000, 3_000);
     }

@@ -4,6 +4,8 @@ import dev.bykowski.ssisw.communication.MarketplaceProtocol;
 import dev.bykowski.ssisw.communication.MessageCodec;
 import dev.bykowski.ssisw.market.RecommendationService;
 import dev.bykowski.ssisw.market.ScoredOffer;
+import dev.bykowski.ssisw.market.MarketValuation;
+import dev.bykowski.ssisw.market.ValuationService;
 import dev.bykowski.ssisw.simulation.SimulationObserver;
 import jade.core.Agent;
 import jade.core.behaviours.CyclicBehaviour;
@@ -20,6 +22,7 @@ public class AdvisorAgent extends Agent {
 
     private final MessageCodec codec = new MessageCodec();
     private final RecommendationService recommendationService = new RecommendationService();
+    private final ValuationService valuationService = new ValuationService();
     private SimulationObserver observer;
 
     @Override
@@ -49,11 +52,13 @@ public class AdvisorAgent extends Agent {
                     request.getContent(), MarketplaceProtocol.RecommendationRequest.class);
             List<ScoredOffer> recommendations = recommendationService.recommendTop3(
                     payload.offers(), payload.criteria(), payload.sellerReputations());
+            MarketValuation valuation = recommendations.isEmpty() ? null : valuationService.valuate(
+                    recommendations.getFirst().offer(), payload.offers());
             observer.recommendationGenerated(
-                    request.getSender().getLocalName(), recommendations);
+                    request.getSender().getLocalName(), recommendations, valuation);
             response.setPerformative(ACLMessage.INFORM);
             response.setContent(codec.encode(
-                    new MarketplaceProtocol.RecommendationResponse(recommendations)));
+                    new MarketplaceProtocol.RecommendationResponse(recommendations, valuation)));
         } catch (RuntimeException exception) {
             response.setPerformative(ACLMessage.FAILURE);
             response.setContent(exception.getMessage());

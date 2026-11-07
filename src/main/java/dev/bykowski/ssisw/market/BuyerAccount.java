@@ -21,6 +21,13 @@ public class BuyerAccount {
         budgetPln -= amountPln;
     }
 
+    public void refund(long amountPln) {
+        if (amountPln < 0) {
+            throw new IllegalArgumentException("Refund cannot be negative");
+        }
+        budgetPln += amountPln;
+    }
+
     public String buyerName() {
         return buyerName;
     }

@@ -49,6 +49,8 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
     private final long reservationDurationMillis;
     private final Duration timeout;
     private final boolean jadeGui;
+    private final boolean demonstrateReturn;
+    private final long returnWindowMillis;
     private final ObjectProvider<ElasticsearchMarketplaceStore> elasticsearchStore;
 
     public MarketplaceSimulationListener(
@@ -59,6 +61,8 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
             @Value("${simulation.reservation-duration-ms:5000}") long reservationDurationMillis,
             @Value("${simulation.timeout-seconds:30}") long timeoutSeconds,
             @Value("${simulation.jade-gui:false}") boolean jadeGui,
+            @Value("${simulation.demonstrate-return:false}") boolean demonstrateReturn,
+            @Value("${simulation.return-window-ms:5000}") long returnWindowMillis,
             ObjectProvider<ElasticsearchMarketplaceStore> elasticsearchStore) {
         this.datasetReader = datasetReader;
         this.datasetPath = Path.of(datasetPath);
@@ -67,6 +71,8 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
         this.reservationDurationMillis = reservationDurationMillis;
         this.timeout = Duration.ofSeconds(timeoutSeconds);
         this.jadeGui = jadeGui;
+        this.demonstrateReturn = demonstrateReturn;
+        this.returnWindowMillis = returnWindowMillis;
         this.elasticsearchStore = elasticsearchStore;
     }
 
@@ -80,6 +86,9 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
         }
         if (targetPurchasesPerBuyer < 1) {
             throw new IllegalStateException("Target purchases per buyer must be positive");
+        }
+        if (returnWindowMillis < 1) {
+            throw new IllegalStateException("Return window must be positive");
         }
 
         ElasticsearchMarketplaceStore store = elasticsearchStore.getIfAvailable();
@@ -138,7 +147,7 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
                 container.createNewAgent(
                         sellerName,
                         SellerAgent.class.getName(),
-                        new Object[]{inventory, observer, reservationDurationMillis})
+                        new Object[]{inventory, observer, reservationDurationMillis, returnWindowMillis})
                         .start();
             }
             container.createNewAgent(
@@ -167,7 +176,8 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
                 container.createNewAgent(
                         buyerName,
                         BuyerAgent.class.getName(),
-                        new Object[]{buyerBudgetPln, criteria, observer, SELLER_COUNT, targetPurchasesPerBuyer})
+                        new Object[]{buyerBudgetPln, criteria, observer, SELLER_COUNT,
+                                targetPurchasesPerBuyer, demonstrateReturn})
                         .start();
             }
         } catch (StaleProxyException exception) {
@@ -186,6 +196,8 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
         logger.info("Negotiations: {} accepted, {} rejected",
                 observer.negotiationsAccepted(), observer.negotiationsRejected());
         logger.info("Seller ratings recorded: {}", observer.ratingsRecorded());
+        logger.info("Market valuations generated: {}", observer.valuationsGenerated());
+        logger.info("Returns completed: {}", observer.returns().size());
         if (observer.latestTrend() != null) {
             logger.info("Market result: popular body {}, model {}, fuel {}; average {} PLN; trend {}",
                     observer.latestTrend().mostPopularBodyType(), observer.latestTrend().mostPopularModel(),

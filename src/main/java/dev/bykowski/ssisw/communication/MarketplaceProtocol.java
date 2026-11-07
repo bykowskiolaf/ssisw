@@ -8,6 +8,8 @@ import dev.bykowski.ssisw.market.NegotiationResult;
 import dev.bykowski.ssisw.market.MarketTrendSnapshot;
 import dev.bykowski.ssisw.market.SaleRecord;
 import dev.bykowski.ssisw.market.SellerReputation;
+import dev.bykowski.ssisw.market.MarketValuation;
+import dev.bykowski.ssisw.market.ReturnResult;
 import dev.bykowski.ssisw.market.Transaction;
 
 public final class MarketplaceProtocol {
@@ -25,6 +27,7 @@ public final class MarketplaceProtocol {
     public static final String RATING = "seller-rating";
     public static final String TREND_SERVICE = "market-trend";
     public static final String SALE_EVENT = "market-sale-event";
+    public static final String RETURN = "car-return";
 
     private MarketplaceProtocol() {
     }
@@ -53,7 +56,9 @@ public final class MarketplaceProtocol {
             java.util.Map<String, Double> sellerReputations) {
     }
 
-    public record RecommendationResponse(java.util.List<ScoredOffer> recommendations) {
+    public record RecommendationResponse(
+            java.util.List<ScoredOffer> recommendations,
+            MarketValuation topValuation) {
     }
 
     public record NegotiationRequest(
@@ -88,5 +93,11 @@ public final class MarketplaceProtocol {
     }
 
     public record SaleEventResponse(MarketTrendSnapshot snapshot) {
+    }
+
+    public record ReturnRequest(String transactionId, String buyerName) {
+    }
+
+    public record ReturnResponse(ReturnResult result) {
     }
 }

@@ -56,6 +56,21 @@ transaction ratings are rejected, averages are recalculated, and seller reputati
 tie-breaker by the advisor. `TrendAgent` receives each completed sale and reports the most popular
 body type, model and fuel type, average transaction price, and a rising/falling/stable price trend.
 
+The advisor also estimates the selected car's market value from offers with a similar body type,
+fuel type, and production year. Price differences are classified as close to market (up to 5%),
+elevated/reduced (5–15%), or significantly different (above 15%).
+
+Returns are accepted within a configurable five-second window. The seller restores the car to
+`AVAILABLE`, the buyer receives a full refund, and Elasticsearch marks the transaction `RETURNED`.
+Run the demonstration scenario with:
+
+```shell
+./gradlew bootRun --args='--simulation.enabled=true --simulation.demonstrate-return=true'
+```
+
+`Buyer01` returns its first purchase and buys a replacement, so the run ends with 16 purchase
+records, one return, and the required 15 sold cars.
+
 Enable JADE's management GUI when inspecting agents and messages manually:
 
 ```shell

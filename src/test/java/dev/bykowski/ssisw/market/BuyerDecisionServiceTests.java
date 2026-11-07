@@ -35,6 +35,16 @@ class BuyerDecisionServiceTests {
         assertThat(account.budgetPln()).isEqualTo(100_000);
     }
 
+    @Test
+    void restoresBudgetAfterRefund() {
+        BuyerAccount account = new BuyerAccount("Buyer01", 150_000);
+        account.pay(120_000);
+
+        account.refund(120_000);
+
+        assertThat(account.budgetPln()).isEqualTo(150_000);
+    }
+
     private CarOffer offer(String id, long totalCost) {
         Car car = new Car(id, "Toyota", "Corolla", "SEDAN", "PETROL", 1598,
                 2024, totalCost - 1_000, 1_000, totalCost, 10_000, 130,

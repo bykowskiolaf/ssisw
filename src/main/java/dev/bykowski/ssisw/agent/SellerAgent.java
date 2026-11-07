@@ -24,6 +24,7 @@ public class SellerAgent extends Agent {
     private SellerInventory inventory;
     private SimulationObserver observer;
     private long reservationDurationMillis;
+    private long returnWindowMillis;
 
     @Override
     protected void setup() {
@@ -31,6 +32,7 @@ public class SellerAgent extends Agent {
         inventory = (SellerInventory) arguments[0];
         observer = (SimulationObserver) arguments[1];
         reservationDurationMillis = (long) arguments[2];
+        returnWindowMillis = (long) arguments[3];
         registerSellerService();
 
         addBehaviour(new CyclicBehaviour() {
@@ -58,6 +60,7 @@ public class SellerAgent extends Agent {
                 case MarketplaceProtocol.SEARCH -> handleSearch(message);
                 case MarketplaceProtocol.RESERVATION -> handleReservation(message);
                 case MarketplaceProtocol.PURCHASE -> handlePurchase(message);
+                case MarketplaceProtocol.RETURN -> handleReturn(message);
                 default -> reply(message, ACLMessage.NOT_UNDERSTOOD, "Unknown marketplace message");
             }
         } catch (RuntimeException exception) {
@@ -109,6 +112,20 @@ public class SellerAgent extends Agent {
         }
         reply(message, ACLMessage.INFORM,
                 codec.encode(new MarketplaceProtocol.PurchaseResponse(transaction.orElseThrow())));
+    }
+
+    private void handleReturn(ACLMessage message) {
+        MarketplaceProtocol.ReturnRequest request = codec.decode(
+                message.getContent(), MarketplaceProtocol.ReturnRequest.class);
+        String senderName = message.getSender().getLocalName();
+        if (!senderName.equals(request.buyerName())) {
+            reply(message, ACLMessage.FAILURE, "BUYER_ID_MISMATCH");
+            return;
+        }
+        dev.bykowski.ssisw.market.ReturnResult result = inventory.returnCar(
+                request.transactionId(), senderName, returnWindowMillis);
+        reply(message, result.accepted() ? ACLMessage.INFORM : ACLMessage.REFUSE,
+                codec.encode(new MarketplaceProtocol.ReturnResponse(result)));
     }
 
     private void reply(ACLMessage request, int performative, String content) {

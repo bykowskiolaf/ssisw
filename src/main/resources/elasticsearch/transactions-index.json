@@ -11,7 +11,9 @@
       "sellerName": { "type": "keyword" },
       "buyerName": { "type": "keyword" },
       "totalCostPln": { "type": "long" },
-      "completedAtEpochMillis": { "type": "date", "format": "epoch_millis" }
+      "completedAtEpochMillis": { "type": "date", "format": "epoch_millis" },
+      "returnedAtEpochMillis": { "type": "date", "format": "epoch_millis" },
+      "status": { "type": "keyword" }
     }
   }
 }

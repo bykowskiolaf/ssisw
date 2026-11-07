@@ -5,6 +5,8 @@ import dev.bykowski.ssisw.market.ScoredOffer;
 import dev.bykowski.ssisw.market.NegotiationResult;
 import dev.bykowski.ssisw.market.MarketTrendSnapshot;
 import dev.bykowski.ssisw.market.SellerReputation;
+import dev.bykowski.ssisw.market.MarketValuation;
+import dev.bykowski.ssisw.market.ReturnResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,6 +30,8 @@ public class SimulationObserver {
     private final AtomicInteger negotiationsAccepted = new AtomicInteger();
     private final AtomicInteger negotiationsRejected = new AtomicInteger();
     private final AtomicInteger ratingsRecorded = new AtomicInteger();
+    private final AtomicInteger valuationsGenerated = new AtomicInteger();
+    private final List<ReturnResult> returns = new CopyOnWriteArrayList<>();
     private volatile MarketTrendSnapshot latestTrend;
     private final List<Transaction> transactions = new CopyOnWriteArrayList<>();
     private final Set<String> completedBuyers = ConcurrentHashMap.newKeySet();
@@ -57,7 +61,10 @@ public class SimulationObserver {
         logger.info("{} could not reserve {}; searching again", buyerName, carId);
     }
 
-    public void recommendationGenerated(String buyerName, List<ScoredOffer> recommendations) {
+    public void recommendationGenerated(
+            String buyerName,
+            List<ScoredOffer> recommendations,
+            MarketValuation valuation) {
         recommendationsGenerated.incrementAndGet();
         String topCars = recommendations.stream()
                 .map(recommendation -> "%s (%.3f)".formatted(
@@ -65,6 +72,12 @@ public class SimulationObserver {
                 .reduce((left, right) -> left + ", " + right)
                 .orElse("none");
         logger.info("Advisor TOP {} for {}: {}", recommendations.size(), buyerName, topCars);
+        if (valuation != null) {
+            valuationsGenerated.incrementAndGet();
+            logger.info("VALUATION: {} market average {} PLN, difference {}%, {}",
+                    valuation.carId(), Math.round(valuation.marketAveragePln()),
+                    "%.2f".formatted(valuation.percentageDifference()), valuation.classification());
+        }
     }
 
     public void negotiationCompleted(String buyerName, NegotiationResult result) {
@@ -109,6 +122,19 @@ public class SimulationObserver {
         logger.info("PURCHASE: {} bought {} from {} for {} PLN; remaining budget: {} PLN",
                 transaction.buyerName(), transaction.carId(), transaction.sellerName(),
                 transaction.totalCostPln(), remainingBudgetPln);
+    }
+
+    public void returnCompleted(ReturnResult result, long restoredBudgetPln) {
+        try {
+            eventSink.recordReturn(result);
+        } catch (RuntimeException exception) {
+            completion.completeExceptionally(exception);
+            throw exception;
+        }
+        returns.add(result);
+        logger.info("RETURN: {} returned {}; refund {} PLN; restored budget {} PLN",
+                result.transaction().buyerName(), result.transaction().carId(),
+                result.transaction().totalCostPln(), restoredBudgetPln);
     }
 
     public void buyerCompleted(String buyerName, long remainingBudgetPln) {
@@ -161,6 +187,14 @@ public class SimulationObserver {
 
     public int ratingsRecorded() {
         return ratingsRecorded.get();
+    }
+
+    public int valuationsGenerated() {
+        return valuationsGenerated.get();
+    }
+
+    public List<ReturnResult> returns() {
+        return List.copyOf(returns);
     }
 
     public MarketTrendSnapshot latestTrend() {
