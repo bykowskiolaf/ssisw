@@ -2,6 +2,13 @@
 
 Multi-agent car-market project built with Java, Spring Boot, JADE, Elasticsearch, and Kibana.
 
+Project documentation:
+
+- [final report and architecture](docs/SPRAWOZDANIE.md),
+- [17 test scenarios and results](docs/SCENARIUSZE_TESTOWE.md),
+- [presentation checklist](docs/DEMO.md),
+- [importable Kibana dashboard](kibana/README.md).
+
 ## Generate the vehicle dataset
 
 The importer retrieves real make, model, production-year, and vehicle-category data from the public
@@ -107,9 +114,13 @@ can execute without overwriting each other and previous results remain available
 Filter both Kibana data views by the same `runId` when presenting one simulation. The run ID is
 printed at startup.
 
-In Kibana, create data views named `cars` and `transactions`. Useful first visualizations are car
-counts by `make`, `bodyType`, and `fuelType`, production-year distribution, average
-`totalCostPln` by body type, and transactions over time using `completedAtEpochMillis`.
+Import the included data views and five-visualization dashboard:
+
+```shell
+bash kibana/import-dashboard.sh
+```
+
+See [`kibana/README.md`](kibana/README.md) for dashboard contents and run filtering.
 
 Stop the local services without deleting their data:
 
