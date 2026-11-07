@@ -45,6 +45,12 @@ shuts down automatically.
 When no fuel type is explicitly requested, the fuel criterion prefers electric, hybrid, petrol,
 then diesel vehicles. When a fuel type is requested, it remains a mandatory filter.
 
+Before reservation, the selected offer is sent to an independent `NegotiatorAgent`. Buyers begin
+at 80% of catalog price, sellers counter while enforcing a maximum 15% discount, and negotiation
+ends with acceptance or rejection after at most three rounds. Additional costs are not discounted.
+The seller independently validates the agreed total, and that amount is used for the transaction
+and buyer budget deduction.
+
 Enable JADE's management GUI when inspecting agents and messages manually:
 
 ```shell

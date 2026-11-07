@@ -89,7 +89,7 @@ public class SellerAgent extends Agent {
             return;
         }
         ReservationResult result = inventory.reserve(
-                request.carId(), senderName, reservationDurationMillis);
+                request.carId(), senderName, request.agreedTotalPln(), reservationDurationMillis);
         reply(message, result.accepted() ? ACLMessage.AGREE : ACLMessage.REFUSE,
                 codec.encode(new MarketplaceProtocol.ReservationResponse(result)));
     }

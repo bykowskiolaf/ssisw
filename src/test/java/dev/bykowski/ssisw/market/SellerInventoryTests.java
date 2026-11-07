@@ -56,6 +56,22 @@ class SellerInventoryTests {
         assertThat(offer.car().totalCostPln()).isEqualTo(146_000);
     }
 
+    @Test
+    void enforcesDiscountLimitAndUsesNegotiatedTransactionPrice() {
+        SellerInventory inventory = new SellerInventory("Seller01", List.of(car()));
+
+        ReservationResult excessiveDiscount = inventory.reserve(
+                "CAR-001", "Buyer01", 126_249, 5_000);
+        ReservationResult accepted = inventory.reserve(
+                "CAR-001", "Buyer01", 133_500, 5_000);
+        Transaction transaction = inventory.purchase("CAR-001", "Buyer01").orElseThrow();
+
+        assertThat(excessiveDiscount.accepted()).isFalse();
+        assertThat(excessiveDiscount.message()).isEqualTo("INVALID_NEGOTIATED_PRICE");
+        assertThat(accepted.accepted()).isTrue();
+        assertThat(transaction.totalCostPln()).isEqualTo(133_500);
+    }
+
     private Car car() {
         return car("CAR-001", "SUV", "PETROL", 2024, 145_000, 3_000);
     }

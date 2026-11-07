@@ -37,6 +37,16 @@ public class SellerInventory {
     }
 
     public synchronized ReservationResult reserve(String carId, String buyerName, long durationMillis) {
+        InventoryItem item = items.get(carId);
+        long catalogTotal = item == null ? 0 : item.car.totalCostPln();
+        return reserve(carId, buyerName, catalogTotal, durationMillis);
+    }
+
+    public synchronized ReservationResult reserve(
+            String carId,
+            String buyerName,
+            long agreedTotalPln,
+            long durationMillis) {
         releaseExpiredReservations();
         InventoryItem item = items.get(carId);
         if (item == null) {
@@ -45,8 +55,13 @@ public class SellerInventory {
         if (item.status != CarStatus.AVAILABLE) {
             return new ReservationResult(false, carId, "CAR_UNAVAILABLE");
         }
+        if (agreedTotalPln < NegotiationService.minimumTotal(item.car)
+                || agreedTotalPln > item.car.totalCostPln()) {
+            return new ReservationResult(false, carId, "INVALID_NEGOTIATED_PRICE");
+        }
         item.status = CarStatus.RESERVED;
         item.reservedBy = buyerName;
+        item.reservedTotalCostPln = agreedTotalPln;
         item.reservedUntilEpochMillis = clock.millis() + durationMillis;
         return new ReservationResult(true, carId, "RESERVED");
     }
@@ -58,14 +73,16 @@ public class SellerInventory {
             return Optional.empty();
         }
         item.status = CarStatus.SOLD;
+        long transactionTotalCostPln = item.reservedTotalCostPln;
         item.reservedBy = null;
         item.reservedUntilEpochMillis = 0;
+        item.reservedTotalCostPln = 0;
         return Optional.of(new Transaction(
                 UUID.randomUUID().toString(),
                 carId,
                 sellerName,
                 buyerName,
-                item.car.totalCostPln(),
+                transactionTotalCostPln,
                 clock.millis()));
     }
 
@@ -76,6 +93,7 @@ public class SellerInventory {
                 .forEach(item -> {
                     item.status = CarStatus.AVAILABLE;
                     item.reservedBy = null;
+                    item.reservedTotalCostPln = 0;
                     item.reservedUntilEpochMillis = 0;
                 });
     }
@@ -94,6 +112,7 @@ public class SellerInventory {
         private CarStatus status = CarStatus.AVAILABLE;
         private String reservedBy;
         private long reservedUntilEpochMillis;
+        private long reservedTotalCostPln;
 
         private InventoryItem(Car car) {
             this.car = car;

@@ -2,6 +2,7 @@ package dev.bykowski.ssisw.simulation;
 
 import dev.bykowski.ssisw.market.Transaction;
 import dev.bykowski.ssisw.market.ScoredOffer;
+import dev.bykowski.ssisw.market.NegotiationResult;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,6 +23,8 @@ public class SimulationObserver {
     private final AtomicInteger offersProposed = new AtomicInteger();
     private final AtomicInteger rejectedReservations = new AtomicInteger();
     private final AtomicInteger recommendationsGenerated = new AtomicInteger();
+    private final AtomicInteger negotiationsAccepted = new AtomicInteger();
+    private final AtomicInteger negotiationsRejected = new AtomicInteger();
     private final List<Transaction> transactions = new CopyOnWriteArrayList<>();
     private final Set<String> completedBuyers = ConcurrentHashMap.newKeySet();
     private final Map<String, Long> remainingBudgets = new ConcurrentHashMap<>();
@@ -58,6 +61,18 @@ public class SimulationObserver {
                 .reduce((left, right) -> left + ", " + right)
                 .orElse("none");
         logger.info("Advisor TOP {} for {}: {}", recommendations.size(), buyerName, topCars);
+    }
+
+    public void negotiationCompleted(String buyerName, NegotiationResult result) {
+        if (result.accepted()) {
+            negotiationsAccepted.incrementAndGet();
+            logger.info("NEGOTIATION: {} accepted {} PLN for {} after {} round(s), catalog {} PLN",
+                    buyerName, result.agreedTotalPln(), result.carId(), result.rounds(), result.catalogTotalPln());
+        } else {
+            negotiationsRejected.incrementAndGet();
+            logger.info("NEGOTIATION: {} rejected for {} after {} rounds; minimum {} PLN",
+                    buyerName, result.carId(), result.rounds(), result.minimumTotalPln());
+        }
     }
 
     public void purchaseCompleted(Transaction transaction, long remainingBudgetPln) {
@@ -100,6 +115,14 @@ public class SimulationObserver {
 
     public int recommendationsGenerated() {
         return recommendationsGenerated.get();
+    }
+
+    public int negotiationsAccepted() {
+        return negotiationsAccepted.get();
+    }
+
+    public int negotiationsRejected() {
+        return negotiationsRejected.get();
     }
 
     public List<Transaction> transactions() {

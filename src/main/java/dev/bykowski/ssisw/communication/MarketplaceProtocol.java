@@ -4,6 +4,7 @@ import dev.bykowski.ssisw.market.CarOffer;
 import dev.bykowski.ssisw.market.ReservationResult;
 import dev.bykowski.ssisw.market.SearchCriteria;
 import dev.bykowski.ssisw.market.ScoredOffer;
+import dev.bykowski.ssisw.market.NegotiationResult;
 import dev.bykowski.ssisw.market.Transaction;
 
 public final class MarketplaceProtocol {
@@ -14,6 +15,8 @@ public final class MarketplaceProtocol {
     public static final String PURCHASE = "car-purchase";
     public static final String ADVISOR_SERVICE = "car-advisor";
     public static final String RECOMMENDATION = "car-recommendation";
+    public static final String NEGOTIATOR_SERVICE = "car-negotiator";
+    public static final String NEGOTIATION = "car-negotiation";
 
     private MarketplaceProtocol() {
     }
@@ -24,7 +27,7 @@ public final class MarketplaceProtocol {
     public record SearchResponse(CarOffer offer) {
     }
 
-    public record ReservationRequest(String carId, String buyerName) {
+    public record ReservationRequest(String carId, String buyerName, long agreedTotalPln) {
     }
 
     public record ReservationResponse(ReservationResult result) {
@@ -40,5 +43,16 @@ public final class MarketplaceProtocol {
     }
 
     public record RecommendationResponse(java.util.List<ScoredOffer> recommendations) {
+    }
+
+    public record NegotiationRequest(
+            CarOffer offer,
+            String buyerName,
+            long initialOfferTotalPln,
+            long buyerMaximumTotalPln
+    ) {
+    }
+
+    public record NegotiationResponse(NegotiationResult result) {
     }
 }

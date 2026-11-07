@@ -6,6 +6,8 @@ import dev.bykowski.ssisw.market.BuyerAccount;
 import dev.bykowski.ssisw.market.CarOffer;
 import dev.bykowski.ssisw.market.SearchCriteria;
 import dev.bykowski.ssisw.market.ScoredOffer;
+import dev.bykowski.ssisw.market.NegotiationResult;
+import dev.bykowski.ssisw.market.NegotiationService;
 import dev.bykowski.ssisw.market.Transaction;
 import dev.bykowski.ssisw.simulation.SimulationObserver;
 import jade.core.AID;
@@ -52,12 +54,14 @@ public class BuyerAgent extends Agent {
             protected void onTick() {
                 List<AID> sellers = findSellers();
                 Optional<AID> advisor = findAdvisor();
-                if (sellers.size() >= expectedSellerCount && advisor.isPresent()) {
+                Optional<AID> negotiator = findService(MarketplaceProtocol.NEGOTIATOR_SERVICE);
+                if (sellers.size() >= expectedSellerCount && advisor.isPresent() && negotiator.isPresent()) {
                     stop();
-                    addBehaviour(new PurchaseFlowBehaviour(sellers, advisor.orElseThrow()));
+                    addBehaviour(new PurchaseFlowBehaviour(
+                            sellers, advisor.orElseThrow(), negotiator.orElseThrow()));
                 } else if (System.currentTimeMillis() >= discoveryDeadline) {
                     stop();
-                    observer.simulationFailed(getLocalName(), "seller or advisor discovery timed out");
+                    observer.simulationFailed(getLocalName(), "seller, advisor, or negotiator discovery timed out");
                     doDelete();
                 }
             }
@@ -65,9 +69,13 @@ public class BuyerAgent extends Agent {
     }
 
     private Optional<AID> findAdvisor() {
+        return findService(MarketplaceProtocol.ADVISOR_SERVICE);
+    }
+
+    private Optional<AID> findService(String serviceType) {
         DFAgentDescription template = new DFAgentDescription();
         ServiceDescription service = new ServiceDescription();
-        service.setType(MarketplaceProtocol.ADVISOR_SERVICE);
+        service.setType(serviceType);
         template.addServices(service);
         try {
             DFAgentDescription[] matches = DFService.search(this, template);
@@ -98,14 +106,16 @@ public class BuyerAgent extends Agent {
 
         private static final int WAITING_FOR_OFFERS = 0;
         private static final int WAITING_FOR_RECOMMENDATION = 1;
-        private static final int WAITING_FOR_RESERVATION = 2;
-        private static final int WAITING_FOR_PURCHASE = 3;
-        private static final int WAITING_TO_RETRY = 4;
-        private static final int FINISHED = 5;
+        private static final int WAITING_FOR_NEGOTIATION = 2;
+        private static final int WAITING_FOR_RESERVATION = 3;
+        private static final int WAITING_FOR_PURCHASE = 4;
+        private static final int WAITING_TO_RETRY = 5;
+        private static final int FINISHED = 6;
         private static final int MAX_RESERVATION_ATTEMPTS = 50;
 
         private final List<AID> sellers;
         private final AID advisor;
+        private final AID negotiator;
         private final List<CarOffer> offers = new ArrayList<>();
         private final Set<String> respondingSellers = new HashSet<>();
         private String conversationId;
@@ -119,11 +129,13 @@ public class BuyerAgent extends Agent {
         private CarOffer selectedOffer;
         private AID selectedSeller;
         private SearchCriteria activeCriteria;
+        private long agreedTotalPln;
 
-        private PurchaseFlowBehaviour(List<AID> sellers, AID advisor) {
+        private PurchaseFlowBehaviour(List<AID> sellers, AID advisor, AID negotiator) {
             super(BuyerAgent.this);
             this.sellers = sellers;
             this.advisor = advisor;
+            this.negotiator = negotiator;
             sendSearch();
         }
 
@@ -132,6 +144,7 @@ public class BuyerAgent extends Agent {
             switch (state) {
                 case WAITING_FOR_OFFERS -> collectOffers();
                 case WAITING_FOR_RECOMMENDATION -> receiveRecommendation();
+                case WAITING_FOR_NEGOTIATION -> receiveNegotiation();
                 case WAITING_FOR_RESERVATION -> receiveReservation();
                 case WAITING_FOR_PURCHASE -> receivePurchase();
                 case WAITING_TO_RETRY -> retrySearchWhenReady();
@@ -230,10 +243,67 @@ public class BuyerAgent extends Agent {
                         .filter(seller -> seller.getLocalName().equals(selectedOffer.sellerName()))
                         .findFirst()
                         .orElseThrow();
-                sendReservation();
+                sendNegotiationRequest();
             } catch (RuntimeException exception) {
                 fail("cannot process advisor response: " + exception.getMessage());
             }
+        }
+
+        private void sendNegotiationRequest() {
+            long initialOffer = selectedOffer.car().additionalCostPln()
+                    + Math.round(selectedOffer.car().pricePln() * 0.80);
+            ACLMessage request = new ACLMessage(ACLMessage.REQUEST);
+            request.addReceiver(negotiator);
+            request.setOntology(MarketplaceProtocol.NEGOTIATION);
+            request.setConversationId(conversationId);
+            expectedReplyToken = UUID.randomUUID().toString();
+            request.setReplyWith(expectedReplyToken);
+            request.setContent(codec.encode(new MarketplaceProtocol.NegotiationRequest(
+                    selectedOffer,
+                    getLocalName(),
+                    initialOffer,
+                    Math.min(account.budgetPln(), selectedOffer.car().totalCostPln()))));
+            send(request);
+            deadline = System.currentTimeMillis() + 1_500;
+            state = WAITING_FOR_NEGOTIATION;
+        }
+
+        private void receiveNegotiation() {
+            ACLMessage response = receive(MessageTemplate.and(
+                    phaseTemplate(MarketplaceProtocol.NEGOTIATION),
+                    MessageTemplate.MatchSender(negotiator)));
+            if (response == null) {
+                if (System.currentTimeMillis() >= deadline) {
+                    retryOrFinish();
+                } else {
+                    block(25);
+                }
+                return;
+            }
+            try {
+                MarketplaceProtocol.NegotiationResponse payload = codec.decode(
+                        response.getContent(), MarketplaceProtocol.NegotiationResponse.class);
+                NegotiationResult result = payload.result();
+                if (response.getPerformative() != ACLMessage.INFORM || !isValidNegotiation(result)) {
+                    retryOrFinish();
+                    return;
+                }
+                agreedTotalPln = result.agreedTotalPln();
+                sendReservation();
+            } catch (RuntimeException exception) {
+                fail("cannot process negotiation response: " + exception.getMessage());
+            }
+        }
+
+        private boolean isValidNegotiation(NegotiationResult result) {
+            return result != null
+                    && result.accepted()
+                    && Objects.equals(result.carId(), selectedOffer.car().id())
+                    && result.rounds() >= 1
+                    && result.rounds() <= NegotiationService.MAXIMUM_ROUNDS
+                    && result.agreedTotalPln() >= NegotiationService.minimumTotal(selectedOffer.car())
+                    && result.agreedTotalPln() <= selectedOffer.car().totalCostPln()
+                    && account.canAfford(result.agreedTotalPln());
         }
 
         private boolean isInvalidRecommendation(ScoredOffer recommendation) {
@@ -263,7 +333,7 @@ public class BuyerAgent extends Agent {
             expectedReplyToken = UUID.randomUUID().toString();
             request.setReplyWith(expectedReplyToken);
             request.setContent(codec.encode(new MarketplaceProtocol.ReservationRequest(
-                    selectedOffer.car().id(), getLocalName())));
+                    selectedOffer.car().id(), getLocalName(), agreedTotalPln)));
             send(request);
             state = WAITING_FOR_RESERVATION;
         }

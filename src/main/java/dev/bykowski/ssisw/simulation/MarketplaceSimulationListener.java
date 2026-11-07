@@ -2,6 +2,7 @@ package dev.bykowski.ssisw.simulation;
 
 import dev.bykowski.ssisw.agent.BuyerAgent;
 import dev.bykowski.ssisw.agent.AdvisorAgent;
+import dev.bykowski.ssisw.agent.NegotiatorAgent;
 import dev.bykowski.ssisw.agent.SellerAgent;
 import dev.bykowski.ssisw.car.Car;
 import dev.bykowski.ssisw.data.CarDatasetReader;
@@ -143,6 +144,11 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
                     AdvisorAgent.class.getName(),
                     new Object[]{observer})
                     .start();
+            container.createNewAgent(
+                    "Negotiator",
+                    NegotiatorAgent.class.getName(),
+                    new Object[]{observer})
+                    .start();
             for (int buyerIndex = 0; buyerIndex < BUYER_COUNT; buyerIndex++) {
                 String buyerName = "Buyer%02d".formatted(buyerIndex + 1);
                 SearchCriteria criteria = new SearchCriteria(null, null, 2020, buyerBudgetPln);
@@ -165,6 +171,8 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
         logger.info("================ SIMULATION SUMMARY ================");
         logger.info("Offers proposed: {}", observer.offersProposed());
         logger.info("TOP 3 recommendations generated: {}", observer.recommendationsGenerated());
+        logger.info("Negotiations: {} accepted, {} rejected",
+                observer.negotiationsAccepted(), observer.negotiationsRejected());
         logger.info("Rejected competing reservations: {}", observer.rejectedReservations());
         logger.info("Purchases completed: {}", observer.transactions().size());
         logger.info("Cars: {} available, {} reserved, {} sold", available, reserved, sold);
