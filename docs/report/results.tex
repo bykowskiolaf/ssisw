@@ -1,0 +1,67 @@
+\subsection{Rekomendacje i wyniki MCDA}
+Repozytorium nie zawiera zapisanego logu pełnej symulacji z liczbowymi
+wynikami poszczególnych ofert. Dlatego poniższe szczegółowe dane
+pochodzą z deterministycznych przypadków testowych, a nie z przebiegu
+80 samochodów. Wyniki całej symulacji podano osobno w tabeli~\ref{tab:runs}.
+
+W \code{RecommendationServiceTests} cztery zgodne oferty SUV kosztują
+łącznie 120\,000, 130\,000, 140\,000 i 150\,000 PLN.
+Każda ma koszt dodatkowy 2\,000 PLN, rok 2024, pojemność 1998 cm$^3$,
+paliwo PETROL i spalanie 7,0 l/100 km. Oferta SEDAN za 90\,000 PLN
+jest odrzucana mimo niższej ceny.
+
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrrl}
+\toprule
+Oferta & Koszt całkowity [PLN] & Wynik MCDA & Decyzja\\
+\midrule
+CAR-001 & 120\,000 & 1,00 & TOP 1\\
+CAR-002 & 130\,000 & 0,85 & TOP 2\\
+CAR-003 & 140\,000 & 0,70 & TOP 3\\
+CAR-004 & 150\,000 & 0,55 & Poza TOP 3\\
+CAR-005 & 90\,000 & --- & Niezgodne nadwozie\\
+\bottomrule
+\end{tabular}
+\caption{Ranking testowego zbioru ofert. Oceny liczbowe wyliczono
+z danych testu i wzoru implementacji; asercje testu sprawdzają
+kolejność TOP~3 oraz zakres ocen, nie te konkretne wartości.}
+\end{table}
+
+Cena i koszt całkowity odpowiadają tu łącznie za 45\% oceny.
+Pozostałe cechy są jednakowe, więc każda oferta uzyskuje za nie 0,55.
+Dla CAR-002 normalizacja ceny oraz kosztu daje $2/3$, stąd
+$S=0{,}55+0{,}45\cdot2/3=0{,}85$.
+Test remisu przy jednakowych parametrach preferuje Seller02
+z reputacją 5,0 przed Seller01 z reputacją 3,0.
+
+\subsection{Negocjacje}
+W \code{NegotiationServiceTests} samochód ma cenę 145\,000 PLN
+i koszt dodatkowy 3\,000 PLN. Minimalny koszt po rabacie wynosi
+$145\,000\cdot0{,}85+3\,000=126\,250$ PLN.
+Oferta kupującego 119\,000 PLN przy limicie 148\,000 PLN prowadzi
+do kontrpropozycji i akceptacji 133\,500 PLN już w pierwszej rundzie.
+Oszczędność względem katalogowego kosztu 148\,000 PLN wynosi
+14\,500 PLN. Drugi przypadek, z limitem 120\,000 PLN,
+kończy się odrzuceniem po trzech rundach.
+
+\subsection{Reputacja i trendy}
+Test reputacji zapisuje dla Seller01 oceny 5 i 4 z dwóch transakcji.
+Uzyskana średnia to $(5+4)/2=4{,}5$, a licznik ocen wynosi 2.
+Ponowna ocena tej samej transakcji jest odrzucana.
+
+Test trendów przetwarza cztery transakcje o wartościach 100\,000,
+105\,000, 130\,000 i 140\,000 PLN. Wynik obejmuje cztery sprzedaże,
+średnią 118\,750 PLN, najpopularniejsze nadwozie SUV, model Toyota RAV4,
+paliwo PETROL i kierunek RISING. Są to agregaty kontrolowanego
+zbioru testowego, a nie estymacja trendu rzeczywistego rynku.
+
+\subsection{Elasticsearch i Kibana}
+Plik \code{kibana/dashboard.ndjson} zawiera dwa widoki danych, pięć
+wizualizacji Vega i dashboard \emph{SSISW --- giełda samochodowa}.
+Wizualizacje przedstawiają liczbę pojazdów według marki, nadwozia
+i paliwa, rozkład roku produkcji oraz transakcje według statusu
+COMPLETED / RETURNED. Odwołują się do indeksów \code{cars}
+i \code{transactions}; filtr \code{runId} pozwala wybrać przebieg.
+Zrzuty działającego dashboardu nie zostały dostarczone z materiałami,
+więc ich nie zastępowano przykładowymi obrazami.

@@ -1,0 +1,396 @@
+\documentclass[a4paper,11pt]{uzreport}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usetikzlibrary{arrows.meta,positioning}
+\type{p}
+\class{Sieci społecznościowe i systemy wieloagentowe}
+\lab{Wieloagentowa giełda samochodowa}
+\labnumber{Projekt}
+\date{2026}
+\supervisor{Dr inż. Marek Wróblewski}
+\group{12INF-ISI-SD(L)}
+\author{Olaf Bykowski\\\texttt{109217@stud.uz.zgora.pl}}
+\hypersetup{hidelinks,pdftitle={Wieloagentowa giełda samochodowa}}
+\pgfplotsset{compat=1.18}
+\setcounter{secnumdepth}{2}
+\renewcommand{\thesubsection}{\thesection.\arabic{subsection}}
+\renewcommand{\thefigure}{\arabic{figure}}
+\renewcommand{\thetable}{\arabic{table}}
+\AtBeginDocument{\renewcommand{\thelstlisting}{\arabic{lstlisting}}}
+\lstset{style=usreportlst,basicstyle=\ttfamily\footnotesize,
+  columns=fullflexible,numbers=left,numberbychapter=false}
+\setlength{\emergencystretch}{2em}
+\newcommand{\code}[1]{\texttt{\detokenize{#1}}}
+\newcommand{\testcase}[7]{%
+  \subsubsection*{#1}
+  \begin{description}[style=nextline,leftmargin=0pt,labelwidth=0pt,labelsep=0pt,font=\bfseries]
+    \item[Warunki początkowe] #2
+    \item[Agenci / komponenty] #3
+    \item[Przebieg] #4
+    \item[Oczekiwany rezultat] #5
+    \item[Uzyskany rezultat] #6
+    \item[Wynik] #7
+  \end{description}}
+\begin{document}
+\maketitle
+\tableofcontents
+\clearpage
+
+\section{Wprowadzenie}
+\subsection{Cel i opis problemu}
+Celem projektu jest zaprojektowanie i implementacja symulacji giełdy
+samochodowej z wykorzystaniem Java, JADE/ACL, Elasticsearch oraz Kibany.
+Niezależni agenci reprezentują sprzedających, kupujących i usługi doradcze.
+Podstawowym problemem jest skoordynowanie autonomicznych decyzji zakupowych:
+kilku kupujących może wybrać tę samą ofertę, lecz samochód może mieć tylko
+jednego nabywcę. Jednocześnie należy respektować budżet, preferencje,
+uzgodnioną cenę oraz ograniczenia czasowe rezerwacji i zwrotu.
+
+\subsection{Zakres funkcjonalny}
+System pobiera dane identyfikacyjne pojazdów z NHTSA vPIC, oczyszcza je
+i uzupełnia brakujące parametry rynkowe w sposób deterministyczny.
+Konfiguracja podstawowa obejmuje 10 sprzedających, po 8 samochodów,
+5 kupujących, po 3 docelowe zakupy, oraz czterech agentów usługowych.
+Łącznie w symulacji uczestniczy 19 agentów aplikacyjnych i 80 samochodów,
+a docelowa liczba zachowanych zakupów wynosi 15.
+
+Zakres obejmuje wyszukiwanie i porównywanie ofert, koszt całkowity,
+kontrolę budżetu, konkurencję, rezerwacje, rekomendacje TOP~3,
+negocjacje, reputację, analizę trendów, zwroty, wycenę rynkową
+i analizę wielokryterialną (MCDA). Elasticsearch umożliwia zapis danych
+i historii transakcji, a Kibana ich wizualizację.
+
+\section{Architektura systemu}
+\begin{figure}[htbp]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[
+  box/.style={draw,rounded corners,align=center,minimum height=10mm,
+    text width=38mm,font=\small,fill=uzlogoblue!7},
+  arr/.style={-{Latex},thick}]
+  \node[box] (api) at (0,0) {NHTSA vPIC};
+  \node[box] (import) at (5.5,0) {Importer\\i czyszczenie};
+  \node[box] (json) at (11,0) {JSON\\80 samochodów};
+  \node[box] (boot) at (11,-2.2) {Uruchomienie\\symulacji};
+  \node[box] (agents) at (5.5,-2.2) {19 agentów\\aplikacyjnych};
+  \node[box] (obs) at (0,-2.2) {SimulationObserver};
+  \node[box] (es) at (0,-4.4) {Elasticsearch};
+  \node[box] (kib) at (5.5,-4.4) {Kibana};
+  \draw[arr] (api)--(import);
+  \draw[arr] (import)--(json);
+  \draw[arr] (json)--(boot);
+  \draw[arr] (boot)--(agents);
+  \draw[arr] (agents)-- node[above=1mm,font=\scriptsize,
+    text width=14mm,align=center]{wyniki i\\zdarzenia} (obs);
+  \draw[arr] (obs)-- node[right,font=\scriptsize]{MarketplaceEventSink} (es);
+  \draw[arr] (es)--(kib);
+\end{tikzpicture}}
+\caption{Przepływ danych, uruchomienie agentów i zapis wyników.
+Raportowanie do obserwatora jest niezależne od komunikacji ACL.}
+\label{fig:arch}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[
+  box/.style={draw,rounded corners,align=center,minimum height=11mm,
+    text width=36mm,font=\small,fill=uzlogoblue!7},
+  both/.style={{Latex}-{Latex},thick},
+  note/.style={font=\scriptsize,align=center,text width=36mm,
+    above=2mm}]
+  \node[box] (buyer) at (0,0) {5 $\times$ BuyerAgent};
+  \node[box] (seller) at (10,4) {10 $\times$ SellerAgent\\SellerInventory};
+  \node[box] (advisor) at (10,2) {AdvisorAgent};
+  \node[box] (neg) at (10,0) {NegotiatorAgent};
+  \node[box] (rep) at (10,-2) {ReputationAgent};
+  \node[box] (trend) at (10,-4) {TrendAgent};
+  \draw[both] (buyer.east)--(4,4)--
+    node[note]{wyszukiwanie, rezerwacje,\\zakupy i zwroty} (seller.west);
+  \draw[both] (buyer.east)--(4,2)--
+    node[note]{rekomendacje TOP 3, MCDA\\i wycena} (advisor.west);
+  \draw[both] (buyer.east)--
+    node[note,pos=.73]{oferty cenowe\\i kontrpropozycje} (neg.west);
+  \draw[both] (buyer.east)--(4,-2)--
+    node[note]{oceny sprzedawców\\i zapytania o reputację} (rep.west);
+  \draw[both] (buyer.east)--(4,-4)--
+    node[note]{zdarzenia sprzedaży\\i wyniki analizy trendów} (trend.west);
+\end{tikzpicture}
+\caption{Komunikacja JADE/ACL. Strzałki dwukierunkowe oznaczają
+żądania lub zdarzenia oraz odpowiedzi agentów.}
+\label{fig:acl}
+\end{figure}
+
+Bootstrap symulacji realizuje \code{MarketplaceSimulationListener}.
+Agenci usługowi rejestrują się w JADE Directory Facilitator (DF).
+Kupujący odkrywa usługi dynamicznie i rozpoczyna pracę dopiero po
+znalezieniu wszystkich wymaganych usług. Usługi doradcze nie przejmują
+własności magazynu ani budżetu kupującego.
+
+\code{SellerInventory} jest autorytatywnym właścicielem stanu pojazdów.
+Operacje rezerwacji, zakupu, wygaśnięcia i zwrotu są synchronizowane.
+Stan pojazdu przechodzi między \code{AVAILABLE}, \code{RESERVED}
+i \code{SOLD}. \code{SimulationObserver} zbiera wyniki i przekazuje
+transakcje do opcjonalnego \code{MarketplaceEventSink}.
+Logika agentowa nie zależy od dostępności Elasticsearch.
+
+\section{Opis agentów}
+\subsection{SellerAgent --- sprzedający (10 instancji)}
+\textbf{Funkcja:} zarządzanie ośmioma pojazdami i obsługa sprzedaży.
+\textbf{Wejście:} kryteria wyszukiwania, identyfikator samochodu, kupujący,
+uzgodniona cena i identyfikator transakcji.
+\textbf{Wyjście:} najlepsza dostępna oferta, wynik rezerwacji, zakupu lub zwrotu.
+\textbf{Komunikaty:} \code{car-search}, \code{car-reservation},
+\code{car-purchase}, \code{car-return}.
+\textbf{Decyzje:} wybór najtańszej zgodnej oferty lub odmowa; kontrola dostępności,
+ceny minimalnej, właściciela rezerwacji i prawa do zwrotu.
+
+\subsection{BuyerAgent --- kupujący (5 instancji)}
+\textbf{Funkcja:} realizacja trzech zachowanych zakupów z ograniczonym budżetem.
+\textbf{Wejście:} saldo, preferencje oraz odpowiedzi sprzedających i usług.
+\textbf{Wyjście:} zapytania ACL, wybór oferty, płatność, ocena i zdarzenie sprzedaży.
+\textbf{Komunikaty:} wszystkie ontologie opisane w sekcji~\ref{sec:acl}.
+\textbf{Decyzje:} wybór rekomendacji mieszczącej się w budżecie,
+rozpoczęcie negocjacji, ponowienie wyszukiwania po utracie oferty,
+zakup i ewentualny zwrot. Po zwrocie kupuje pojazd zastępczy.
+
+\subsection{AdvisorAgent --- doradca}
+\textbf{Funkcja:} filtrowanie i wielokryterialna ocena ofert.
+\textbf{Wejście:} oferty, kryteria kupującego i reputacje sprzedawców.
+\textbf{Wyjście:} TOP~3 z wynikami MCDA i wycena pierwszej oferty.
+\textbf{Komunikaty:} \code{car-recommendation}.
+\textbf{Decyzje:} odrzucenie niezgodnych ofert, ranking według ważonej oceny;
+przy remisie preferowana jest lepsza reputacja.
+
+\subsection{NegotiatorAgent --- negocjator}
+\textbf{Funkcja:} prowadzenie ograniczonej negocjacji ceny.
+\textbf{Wejście:} oferta katalogowa, pierwsza propozycja kupującego i jego limit.
+\textbf{Wyjście:} historia rund, kontrpropozycje i wynik negocjacji.
+\textbf{Komunikaty:} \code{car-negotiation}.
+\textbf{Decyzje:} akceptacja, kontrpropozycja lub odrzucenie; maksymalnie
+trzy rundy i rabat do 15\%. Sprzedawca niezależnie weryfikuje uzgodnioną cenę.
+
+\subsection{ReputationAgent --- reputacja}
+\textbf{Funkcja:} agregacja ocen sprzedających.
+\textbf{Wejście:} zapytanie o sprzedawców albo ocena 1--5 dla transakcji.
+\textbf{Wyjście:} średnia, liczba ocen lub błąd walidacji.
+\textbf{Komunikaty:} \code{reputation-query}, \code{seller-rating}.
+\textbf{Decyzje:} przyjęcie poprawnej oceny potwierdzonej transakcji,
+odrzucenie duplikatu lub nieuprawnionej oceny.
+
+\subsection{TrendAgent --- analiza rynku}
+\textbf{Funkcja:} analiza zachowanych sprzedaży.
+\textbf{Wejście:} potwierdzone zdarzenia sprzedaży.
+\textbf{Wyjście:} popularne nadwozie, model i paliwo, średnia cena i kierunek zmian.
+\textbf{Komunikaty:} \code{market-sale-event}.
+\textbf{Decyzje:} walidacja zdarzenia, aktualizacja agregatów i klasyfikacja trendu.
+Trend krótkiej symulacji opisuje jej kolejne transakcje, a nie długookresowy
+trend rzeczywistego rynku.
+
+\section{Komunikacja JADE/ACL}\label{sec:acl}
+Treść komunikatów jest kodowana jako JSON. Pole \code{ontology} określa
+operację, a \code{conversationId}, \code{replyWith} i \code{inReplyTo}
+pozwalają powiązać odpowiedź z odpowiednim żądaniem. Kupujący kontroluje
+również nadawcę oraz termin odpowiedzi, aby nie przyjąć wiadomości z innej fazy.
+
+\begin{table}[htbp]
+\centering
+\small
+\begin{tabular}{p{.28\textwidth}p{.25\textwidth}p{.36\textwidth}}
+\toprule Ontologia & Kierunek & Performatywy\\\midrule
+\code{car-search} & Buyer $\to$ Seller & CFP; PROPOSE / REFUSE\\
+\code{reputation-query} & Buyer $\to$ Reputation & QUERY\_REF; INFORM\\
+\code{car-recommendation} & Buyer $\to$ Advisor & REQUEST; INFORM\\
+\code{car-negotiation} & Buyer $\to$ Negotiator & REQUEST; INFORM\\
+\code{car-reservation} & Buyer $\to$ Seller & REQUEST; AGREE / REFUSE\\
+\code{car-purchase} & Buyer $\to$ Seller & REQUEST; INFORM / FAILURE\\
+\code{seller-rating} & Buyer $\to$ Reputation & INFORM; INFORM / FAILURE\\
+\code{market-sale-event} & Buyer $\to$ Trend & INFORM; INFORM / FAILURE\\
+\code{car-return} & Buyer $\to$ Seller & REQUEST; INFORM / REFUSE\\
+\bottomrule
+\end{tabular}
+\caption{Ontologie, kierunki żądań i performatywy odpowiedzi.}
+\end{table}
+
+Poniższy zapis przedstawia \textbf{przykładową parę komunikatów},
+ilustrującą rezerwację; nie jest zrzutem konkretnej rozmowy z logu.
+\begin{lstlisting}[caption={Żądanie rezerwacji ACL i treść JSON}]
+(REQUEST
+ :sender Buyer01
+ :receiver (set Seller08)
+ :ontology car-reservation
+ :conversation-id reservation-example-01
+ :reply-with reservation-request-01
+ :content "{\"carId\":\"CAR-062\",\"buyerName\":\"Buyer01\",\"agreedTotalPln\":124590}")
+\end{lstlisting}
+\begin{lstlisting}[caption={Odpowiedź powiązana z żądaniem}]
+(AGREE
+ :sender Seller08
+ :receiver (set Buyer01)
+ :ontology car-reservation
+ :conversation-id reservation-example-01
+ :in-reply-to reservation-request-01
+ :content "<JSON wyniku rezerwacji>")
+\end{lstlisting}
+Zawartość pola odpowiedzi oznaczono schematycznie. Sprzedający nie ufa
+samej treści JSON: porównuje \code{buyerName} z tożsamością nadawcy ACL,
+sprawdza dostępność i cenę minimalną. Nieudana rezerwacja nie oznacza
+zakończenia pracy kupującego, lecz konieczność wyboru innej oferty.
+
+\section{Najważniejsze elementy implementacji}
+\subsection{Pozyskiwanie i model danych}
+Importer odrzuca niekompletne rekordy oraz duplikaty. Marka, model, rok
+i kategoria pojazdu pochodzą z NHTSA vPIC. Cena, koszt dodatkowy,
+silnik, pojemność, przebieg, moc, spalanie, skrzynia i napęd są uzupełniane
+deterministycznie, ponieważ vPIC nie jest źródłem ofert handlowych.
+Zbiór 80 rekordów zapisywany jest jako \code{data/cars.json}.
+Oznacza to, że ceny w projekcie są danymi symulacyjnymi, a nie
+zaobserwowanymi cenami rzeczywistych ogłoszeń.
+
+Model zawiera identyfikator, markę, model, nadwozie, typ silnika,
+pojemność, rok, cenę i koszt dodatkowy, a także rozszerzone parametry
+techniczne. Koszt całkowity jest wspólną podstawą filtrowania,
+porównywania i obciążania budżetu:
+\[
+K_{\text{całk.}}=P_{\text{samochodu}}+K_{\text{dodatkowy}}.
+\]
+Przykładowo cena 98\,000 PLN i opłaty 5\,000 PLN dają 103\,000 PLN,
+zatem kupujący z budżetem 100\,000 PLN nie może dokonać takiego zakupu.
+
+\subsection{Rezerwacja, współbieżność i zakup}
+Rezerwacja domyślnie trwa 5 sekund. Jej właściciel uzyskuje prawo
+zakupu po uzgodnionej cenie; pozostali kupujący otrzymują odmowę.
+Po upływie czasu bez zakupu samochód wraca do \code{AVAILABLE}.
+Synchronizacja obejmuje całą operację sprawdzenia warunków i zmiany stanu,
+a nie tylko osobny odczyt dostępności. Eliminuje to wyścig prowadzący
+do podwójnej rezerwacji lub sprzedaży.
+
+\input{implementation}
+
+\subsection{Rekomendacje i MCDA}
+\code{RecommendationService} normalizuje wartości w bieżącym zbiorze
+zgodnych ofert, a następnie oblicza ważoną sumę ocen cząstkowych:
+\[
+ S(a)=0{,}30s_{\mathrm{cena}}+
+ 0{,}20s_{\mathrm{rok}}+
+ 0{,}15s_{\mathrm{koszt}}+
+ 0{,}10s_{\mathrm{paliwo}}+
+ 0{,}10s_{\text{pojemność}}+
+ 0{,}15s_{\mathrm{spalanie}}.
+\]
+Wagi sumują się do 100\%. Cena, koszt całkowity i spalanie są kryteriami
+kosztowymi, natomiast nowszy rok i większa pojemność zwiększają ocenę.
+Ocena paliwa uwzględnia jawne kryterium kupującego, a przy jego braku
+stosuje kolejność ELECTRIC, HYBRID, PETROL, DIESEL.
+Wynik mieści się w przedziale $[0,1]$,
+a reputacja rozstrzyga remisy. Typ nadwozia jest uwzględniany przy
+filtrowaniu ofert. Ranking TOP~3 jest faktycznie wykorzystywany przy wyborze
+oferty do negocjacji i zakupu.
+
+\subsection{Negocjacje, reputacja i wycena}
+Negocjator ogranicza rozmowę do trzech rund. Dopuszczalny rabat wynosi
+maksymalnie 15\% ceny samochodu; koszt dodatkowy pozostaje częścią
+całkowitego kosztu transakcji. Reputacja jest średnią ocen 1--5,
+z kontrolą historii transakcji i odrzucaniem ponownych ocen.
+
+Wycena wykorzystuje porównywalne pojazdy o takim samym nadwoziu i paliwie
+oraz roku różniącym się najwyżej o dwa lata. Porównanie ceny ze średnią
+pozwala zaklasyfikować odchylenie do przedziałów 0--5\%, 5--15\%
+i powyżej 15\%. Jest to metoda porównawcza na zbiorze symulacyjnym,
+nie wytrenowany model predykcyjny rzeczywistej wartości pojazdu.
+
+\subsection{Zwroty i historia}
+Zwrot może zgłosić wyłącznie kupujący zapisany w transakcji i tylko
+w czasie określonym przez \code{simulation.return-window-ms}.
+Po akceptacji samochód wraca do \code{AVAILABLE}, kupujący otrzymuje
+zwrot środków, a historia transakcji uzyskuje status \code{RETURNED}.
+Scenariusz demonstracyjny obejmuje zakup zamiennika, dlatego po zwrocie
+nadal pozostaje 15 zachowanych zakupów.
+
+\section{Testy}
+\subsection{Metodyka i źródło wyników}
+Poniższe scenariusze przeniesiono z \code{docs/SCENARIUSZE_TESTOWE.md}.
+Dokument źródłowy podaje wyniki automatyczne uzyskane poleceniem
+\code{./gradlew test} i wyniki integracyjne z pełnej symulacji opisanej
+w \code{docs/DEMO.md}. Testy reguł biznesowych sprawdzają komponenty
+używane przez agentów; nie każdy z nich uruchamia platformę JADE.
+Wyniki PASS poniżej są wynikami zapisanymi w dokumentacji projektu,
+a nie deklaracją ponownego uruchomienia testów podczas składu sprawozdania.
+Uwzględniono wszystkie 17 scenariuszy, co przekracza minimum 10
+wskazane w punktacji końcowej.
+
+\input{tests}
+
+\section{Wyniki}
+\subsection{Transakcje i stan końcowy}
+Zgodnie z udokumentowanym przebiegiem podstawowym każdy z pięciu kupujących
+zachował trzy samochody. Końcowy stan magazynów przedstawiono
+w tabeli~\ref{tab:runs}.
+\begin{table}[htbp]
+\centering
+\begin{tabular}{lrr}
+\toprule
+Wielkość & Przebieg podstawowy & Przebieg ze zwrotem\\
+\midrule
+Samochody na wejściu & 80 & 80\\
+Rekordy zakupu & 15 & 16\\
+Zwroty & 0 & 1\\
+Zachowane zakupy & 15 & 15\\
+AVAILABLE & 65 & 65\\
+RESERVED & 0 & 0\\
+SOLD & 15 & 15\\
+\bottomrule
+\end{tabular}
+\caption{Wyniki przebiegów opisanych w dokumentacji projektu.}
+\label{tab:runs}
+\end{table}
+
+Przebieg demonstracyjny uruchamiany z
+\code{--simulation.demonstrate-return=true} utworzył 16 rekordów zakupu
+i jeden zwrot. Zakup zastępczy przywrócił docelowy stan.
+Każdy przebieg zapisu do Elasticsearch ma osobny \code{runId},
+co zapobiega nadpisywaniu historii kolejnych symulacji.
+
+\input{results}
+
+\subsection{Interpretacja i ograniczenia}
+Wszystkie zachowane transakcje w udokumentowanym przebiegu otrzymały ocenę
+i zostały przekazane do analizy trendów. Testy potwierdzają powiązanie
+rankingu MCDA z wyborem oferty, wykorzystanie uzgodnionej ceny przy
+transakcji, aktualizację reputacji i poprawną obsługę zwrotu.
+Wyniki krótkiej symulacji nie stanowią reprezentatywnego badania rynku
+samochodowego. Kolejność działań współbieżnych agentów może się zmieniać
+między uruchomieniami, nawet gdy zbiór danych wejściowych jest ten sam.
+
+\section{Wnioski}
+Projekt obejmuje wszystkie 21 minimalnych wymagań funkcjonalnych
+wskazanych w zadaniu: wymaganą liczbę agentów i pojazdów, komunikację
+ACL, model i koszty, budżet, konkurencję bez podwójnej sprzedaży,
+rezerwacje, doradcę i TOP~3, negocjatora, reputację, trendy,
+zwroty, wycenę, MCDA oraz scenariusze testowe.
+
+Najważniejszym problemem była jednoczesna rywalizacja kupujących
+o ten sam pojazd. Rozwiązaniem jest synchronizowany, autorytatywny
+magazyn sprzedającego oraz rezerwacja z ograniczeniem czasu.
+Integralność komunikacji wzmacniają identyfikatory rozmów, terminy
+odpowiedzi, walidacja nadawcy i kontrola historii transakcji.
+Rozdzielenie logiki agentowej od zapisu zdarzeń pozwala prowadzić
+symulację również bez Elasticsearch.
+
+Możliwe kierunki rozwoju obejmują trwałe przechowywanie reputacji,
+wycenę opartą na rzeczywistych ofertach i modelu regresyjnym,
+zróżnicowanie strategii kupujących, rozproszenie kontenerów JADE
+oraz analizę trendów w dłuższych okresach. Przed oddaniem sprawozdania
+należy potwierdzić dane strony tytułowej i dołączyć własne zrzuty
+wizualizacji Kibany, jeżeli mają stanowić dowód prezentacji środowiska.
+
+\begin{thebibliography}{9}
+\bibitem{requirements} \emph{Sieci społecznościowe i systemy wieloagentowe,
+Laboratorium -- projekt aplikacji wieloagentowej}, 2026,
+w szczególności wytyczne Lab 14 i kryteria oceny.
+\bibitem{project} Dokumentacja projektu:
+\code{docs/SPRAWOZDANIE.md}, \code{docs/SCENARIUSZE_TESTOWE.md},
+\code{docs/DEMO.md} oraz kod źródłowy dołączony do projektu.
+\bibitem{vpic} NHTSA, Vehicle Product Information Catalog (vPIC),
+\url{https://vpic.nhtsa.dot.gov/}.
+\end{thebibliography}
+\end{document}

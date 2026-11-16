@@ -1,0 +1,69 @@
+\subsection{Wybrane fragmenty kodu}
+Poniższe listingi są fragmentami rzeczywistej implementacji. Pominięto
+kod otaczający, aby wyeksponować najważniejsze mechanizmy.
+
+\begin{lstlisting}[language=Java,caption={BuyerAgent.java: utworzenie żądania rezerwacji (wiersze 397--408)}]
+private void sendReservation() {
+    ACLMessage request = new ACLMessage(ACLMessage.REQUEST);
+    request.addReceiver(selectedSeller);
+    request.setOntology(MarketplaceProtocol.RESERVATION);
+    request.setConversationId(conversationId);
+    expectedReplyToken = UUID.randomUUID().toString();
+    request.setReplyWith(expectedReplyToken);
+    request.setContent(codec.encode(new MarketplaceProtocol.ReservationRequest(
+            selectedOffer.car().id(), getLocalName(), agreedTotalPln)));
+    send(request);
+    state = WAITING_FOR_RESERVATION;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=Java,caption={SellerInventory.java: atomowa kontrola i zapis rezerwacji (wiersze 45--67)}]
+public synchronized ReservationResult reserve(
+        String carId,
+        String buyerName,
+        long agreedTotalPln,
+        long durationMillis) {
+    releaseExpiredReservations();
+    InventoryItem item = items.get(carId);
+    if (item == null) {
+        return new ReservationResult(false, carId, "UNKNOWN_CAR");
+    }
+    if (item.status != CarStatus.AVAILABLE) {
+        return new ReservationResult(false, carId, "CAR_UNAVAILABLE");
+    }
+    if (agreedTotalPln < NegotiationService.minimumTotal(item.car)
+            || agreedTotalPln > item.car.totalCostPln()) {
+        return new ReservationResult(false, carId, "INVALID_NEGOTIATED_PRICE");
+    }
+    item.status = CarStatus.RESERVED;
+    item.reservedBy = buyerName;
+    item.reservedTotalCostPln = agreedTotalPln;
+    item.reservedUntilEpochMillis = clock.millis() + durationMillis;
+    return new ReservationResult(true, carId, "RESERVED");
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=Java,caption={SellerInventory.java: kontrola właściciela przed sprzedażą (wiersze 69--76)}]
+public synchronized Optional<Transaction> purchase(String carId, String buyerName) {
+    releaseExpiredReservations();
+    InventoryItem item = items.get(carId);
+    if (item == null || item.status != CarStatus.RESERVED || !buyerName.equals(item.reservedBy)) {
+        return Optional.empty();
+    }
+    item.status = CarStatus.SOLD;
+    long transactionTotalCostPln = item.reservedTotalCostPln;
+\end{lstlisting}
+
+\begin{lstlisting}[language=Java,caption={RecommendationService.java: normalizacja kryteriów kosztowych i korzyści (wiersze 79--85)}]
+private double lowerIsBetter(double value, Range range) {
+    return range.isConstant() ? 1.0 : (range.maximum() - value) / (range.maximum() - range.minimum());
+}
+
+private double higherIsBetter(double value, Range range) {
+    return range.isConstant() ? 1.0 : (value - range.minimum()) / (range.maximum() - range.minimum());
+}
+\end{lstlisting}
+Stała wartość kryterium daje wszystkim ofertom ocenę 1, dzięki czemu nie
+dochodzi do dzielenia przez zero. Normalizacja jest względna wobec
+badanego zbioru; wyników MCDA z różnych zbiorów nie należy traktować
+jako bezwzględnej miary jakości pojazdu.

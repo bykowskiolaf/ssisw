@@ -1,0 +1,10 @@
+!/build/
+/build/*
+!/build/main.pdf
+/*.aux
+/*.log
+/*.out
+/*.toc
+/*.fls
+/*.fdb_latexmk
+/*-eps-converted-to.pdf

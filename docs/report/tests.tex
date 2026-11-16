@@ -1,0 +1,127 @@
+\testcase{T01 --- Wyszukanie pasującego auta}
+{Dostępne jest auto zgodne z kryteriami.}
+{BuyerAgent, SellerAgent.}
+{Kupujący wysyła \code{car-search}.}
+{Sprzedający zwraca PROPOSE z najtańszą zgodną ofertą.}
+{Oferta została zwrócona i użyta w rankingu.}{PASS}
+
+\testcase{T02 --- Brak pasującego auta}
+{Żadne dostępne auto nie spełnia filtrów.}
+{BuyerAgent, SellerAgent.}
+{Kupujący wysyła zapytanie z niemożliwymi kryteriami.}
+{Odpowiedź REFUSE / NO\_OFFER.}
+{Brak oferty obsłużono bez przerwania symulacji.}{PASS}
+
+\testcase{T03 --- Zakup w ramach budżetu}
+{Saldo przekracza uzgodniony koszt całkowity.}
+{BuyerAgent, SellerAgent.}
+{Rezerwacja, zakup i płatność.}
+{Auto otrzymuje SOLD, a saldo maleje o koszt transakcji.}
+{Transakcja została utworzona; saldo jest poprawne.}{PASS}
+
+\testcase{T04 --- Zakup przekraczający budżet}
+{Koszt całkowity przekracza saldo.}
+{\code{BuyerAccount}, komponent budżetu kupującego.}
+{Próba płatności ponad dostępne środki.}
+{Odrzucenie operacji bez zmiany salda.}
+{\code{IllegalStateException}; saldo pozostało bez zmian.}{PASS}
+
+\testcase{T05 --- Konkurencja o jeden samochód}
+{Kilku kupujących wybiera tę samą ofertę.}
+{Kilka BuyerAgent i jeden SellerAgent.}
+{Równoległe żądania rezerwacji.}
+{Tylko jedno AGREE; pozostałe żądania otrzymują REFUSE.}
+{W logu odnotowano odrzucone konkurencyjne rezerwacje.}{PASS}
+
+\testcase{T06 --- Rezerwacja samochodu}
+{Auto AVAILABLE, poprawna uzgodniona cena.}
+{BuyerAgent, SellerAgent.}
+{Wysłanie \code{car-reservation}.}
+{Status RESERVED i przypisanie właściciela rezerwacji.}
+{Rezerwacja została zaakceptowana.}{PASS}
+
+\testcase{T07 --- Wygaśnięcie rezerwacji}
+{Auto zarezerwowane bez późniejszego zakupu.}
+{\code{SellerInventory}, komponent sprzedającego.}
+{Przesunięcie zegara poza pięciosekundowy okres rezerwacji.}
+{Automatyczny powrót do AVAILABLE.}
+{Test sterowanego zegara potwierdził zwolnienie pojazdu.}{PASS}
+
+\testcase{T08 --- Udana negocjacja}
+{Możliwe porozumienie w granicach maksymalnego rabatu 15\%.}
+{BuyerAgent, NegotiatorAgent; test reguł \code{NegotiationService}.}
+{Oferta kupującego i kontrpropozycja.}
+{Akceptacja w najwyżej trzech rundach.}
+{Cena została zaakceptowana i użyta w transakcji. Test usługi
+potwierdza kontrpropozycję 133\,500 PLN przy pierwszej ofercie
+119\,000 PLN i limicie 148\,000 PLN.}{PASS}
+
+\testcase{T09 --- Odrzucona negocjacja}
+{Limit kupującego jest niższy niż minimalna dopuszczalna cena.}
+{BuyerAgent, NegotiatorAgent; \code{NegotiationService}.}
+{Negocjacja z pierwszą ofertą 110\,000 PLN i limitem 120\,000 PLN.}
+{Odrzucenie najpóźniej po trzech rundach.}
+{\code{accepted=false}; trzy rundy i brak uzgodnionej ceny.}{PASS}
+
+\testcase{T10 --- Rekomendacja TOP 3}
+{Co najmniej cztery oferty SUV spełniają kryteria.}
+{BuyerAgent, AdvisorAgent; \code{RecommendationService}.}
+{Przekazanie ofert i preferencji doradcy.}
+{Trzy oferty o najwyższej ocenie MCDA w poprawnej kolejności.}
+{Zwrócono CAR-001, CAR-002 i CAR-003; niezgodny SEDAN odrzucono.}{PASS}
+
+\testcase{T11 --- Ocena sprzedawcy}
+{Potwierdzone transakcje umożliwiają wystawienie ocen.}
+{BuyerAgent, ReputationAgent; \code{ReputationService}.}
+{Oceny 5 i 4 dla sprzedawcy oraz ponowna ocena pierwszej transakcji.}
+{Średnia 4,5, dwie oceny i odrzucenie duplikatu.}
+{Średnia oraz licznik są poprawne; duplikat odrzucono.}{PASS}
+
+\testcase{T12 --- Analiza trendu}
+{Cztery sprzedaże o rosnących cenach.}
+{BuyerAgent, TrendAgent; \code{TrendService}.}
+{Kolejne zdarzenia sprzedaży: 100\,000, 105\,000, 130\,000 i 140\,000 PLN.}
+{Poprawne popularne kategorie, średnia i trend RISING.}
+{Średnia wyniosła 118\,750 PLN; najpopularniejsze są SUV,
+Toyota RAV4 i PETROL; trend RISING.}{PASS}
+
+\testcase{T13 --- Zwrot w terminie}
+{Od zakupu nie upłynęło pięć sekund.}
+{BuyerAgent, SellerAgent.}
+{Właściciel wysyła \code{car-return}.}
+{Zwrot środków, AVAILABLE i historia RETURNED.}
+{Wykonano pełny zwrot; kupujący następnie kupił zamiennik.}{PASS}
+
+\testcase{T14 --- Zwrot po terminie}
+{Od zakupu minęło ponad pięć sekund.}
+{BuyerAgent, SellerAgent.}
+{Żądanie zwrotu po upływie okna czasowego.}
+{Odmowa i pozostawienie auta w stanie SOLD.}
+{Otrzymano \code{RETURN_WINDOW_EXPIRED}.}{PASS}
+
+\testcase{T15 --- Określenie wartości rynkowej}
+{Oferta oraz dwa porównywalne pojazdy.}
+{AdvisorAgent; \code{ValuationService}.}
+{Obliczenie średniej i procentowego odchylenia ceny.}
+{Poprawna kwalifikacja do przedziałów 0--5, 5--15 i powyżej 15\%.}
+{Zweryfikowano granice przedziałów klasyfikacji.}{PASS}
+
+\testcase{T16 --- Wybór metodą MCDA}
+{Oferty różnią się ceną, rokiem, paliwem, pojemnością i spalaniem.}
+{BuyerAgent, AdvisorAgent; \code{RecommendationService}.}
+{Normalizacja cech i obliczenie ważonej sumy.}
+{Ranking zgodny z wagami 30/20/15/10/10/15.}
+{Kolejność rekomendacji i zakres ocen 0--1 są poprawne.}{PASS}
+
+\testcase{T17 --- Jednoczesna komunikacja wielu agentów}
+{10 sprzedających, 5 kupujących i 80 samochodów.}
+{Wszystkie agenty aplikacyjne.}
+{Uruchomienie pełnej symulacji.}
+{15 zachowanych zakupów, bez podwójnej sprzedaży i pozostałych rezerwacji.}
+{15 SOLD, 0 RESERVED; każdy kupujący ma trzy auta.}{PASS}
+
+\subsection{Podsumowanie testów}
+Dokumentacja źródłowa podaje 17 scenariuszy zaliczonych i zero niezaliczonych.
+Scenariusze obejmują zarówno ścieżki poprawne, jak i odmowę z powodu
+braku ofert, niewystarczającego budżetu, konkurencji, niedopuszczalnej
+ceny lub przekroczenia czasu zwrotu.
