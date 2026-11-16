@@ -49,6 +49,8 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
     private final long reservationDurationMillis;
     private final Duration timeout;
     private final boolean jadeGui;
+    private final int guiKeepOpenSeconds;
+    private final DemoPacing demoPacing;
     private final boolean demonstrateReturn;
     private final long returnWindowMillis;
     private final ObjectProvider<ElasticsearchMarketplaceStore> elasticsearchStore;
@@ -61,6 +63,10 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
             @Value("${simulation.reservation-duration-ms:5000}") long reservationDurationMillis,
             @Value("${simulation.timeout-seconds:30}") long timeoutSeconds,
             @Value("${simulation.jade-gui:false}") boolean jadeGui,
+            @Value("${simulation.gui-keep-open-seconds:60}") int guiKeepOpenSeconds,
+            @Value("${simulation.demo-mode:false}") boolean demoMode,
+            @Value("${simulation.demo-startup-delay-ms:15000}") long demoStartupDelayMillis,
+            @Value("${simulation.demo-cycle-delay-ms:1000}") long demoCycleDelayMillis,
             @Value("${simulation.demonstrate-return:false}") boolean demonstrateReturn,
             @Value("${simulation.return-window-ms:5000}") long returnWindowMillis,
             ObjectProvider<ElasticsearchMarketplaceStore> elasticsearchStore) {
@@ -71,6 +77,8 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
         this.reservationDurationMillis = reservationDurationMillis;
         this.timeout = Duration.ofSeconds(timeoutSeconds);
         this.jadeGui = jadeGui;
+        this.guiKeepOpenSeconds = guiKeepOpenSeconds;
+        this.demoPacing = DemoPacing.forMode(demoMode, demoStartupDelayMillis, demoCycleDelayMillis);
         this.demonstrateReturn = demonstrateReturn;
         this.returnWindowMillis = returnWindowMillis;
         this.elasticsearchStore = elasticsearchStore;
@@ -86,6 +94,9 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
         }
         if (targetPurchasesPerBuyer < 1) {
             throw new IllegalStateException("Target purchases per buyer must be positive");
+        }
+        if (guiKeepOpenSeconds < 0) {
+            throw new IllegalStateException("GUI keep-open duration cannot be negative");
         }
         if (returnWindowMillis < 1) {
             throw new IllegalStateException("Return window must be positive");
@@ -108,11 +119,24 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
         startAgents(container, inventories, observer);
         logger.info("JADE marketplace started: {} sellers, {} buyers, {} cars",
                 SELLER_COUNT, BUYER_COUNT, requiredCars);
+        if (demoPacing.startupDelayMillis() > 0 || demoPacing.cycleDelayMillis() > 0) {
+            logger.info("Slow demo: {} ms startup pause to attach Sniffer, {} ms between buyer search cycles",
+                    demoPacing.startupDelayMillis(), demoPacing.cycleDelayMillis());
+        }
 
         Thread.ofVirtual().name("simulation-completion").start(() -> {
             try {
-                observer.completion().get(timeout.toSeconds(), TimeUnit.SECONDS);
+                observer.completion().get(
+                        timeout.plusMillis(demoPacing.startupDelayMillis()).toMillis(), TimeUnit.MILLISECONDS);
                 printSummary(inventories, observer);
+                if (jadeGui && guiKeepOpenSeconds > 0) {
+                    logger.info("Simulation complete. Keeping JADE GUI open for {} seconds; Ctrl+C stops it sooner.",
+                            guiKeepOpenSeconds);
+                    TimeUnit.SECONDS.sleep(guiKeepOpenSeconds);
+                }
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                logger.info("Simulation completion wait interrupted; shutting down JADE");
             } catch (Exception exception) {
                 logger.error("Simulation failed or did not complete within {} seconds", timeout.toSeconds(), exception);
             } finally {
@@ -177,7 +201,7 @@ public class MarketplaceSimulationListener implements ApplicationListener<Applic
                         buyerName,
                         BuyerAgent.class.getName(),
                         new Object[]{buyerBudgetPln, criteria, observer, SELLER_COUNT,
-                                targetPurchasesPerBuyer, demonstrateReturn})
+                                 targetPurchasesPerBuyer, demonstrateReturn, demoPacing})
                         .start();
             }
         } catch (StaleProxyException exception) {

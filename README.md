@@ -84,6 +84,23 @@ Enable JADE's management GUI when inspecting agents and messages manually:
 ./gradlew bootRun --args='--simulation.enabled=true --simulation.jade-gui=true --simulation.timeout-seconds=120'
 ```
 
+The launcher disables Spring Boot's default headless mode before startup for JADE's Swing GUI.
+Run in a graphical desktop session and do not force `-Djava.awt.headless=true`.
+The timeout is a maximum execution limit, not a GUI display duration. After a successful
+GUI run, the platform stays open for another 60 seconds. Override this with
+`--simulation.gui-keep-open-seconds=300` for five minutes, or `=0` for immediate shutdown.
+Console-only runs still exit immediately. Ctrl+C stops the application sooner.
+Completed buyer agents remove themselves, so the hold period preserves the remaining
+platform and GUI, not the full initial buyer list.
+
+For a slower Sniffer demonstration, add `--simulation.demo-mode=true`: buyers wait
+15 seconds before trading, then pause for 1 second between search cycles (including
+retries). Override with `--simulation.demo-startup-delay-ms=30000` and
+`--simulation.demo-cycle-delay-ms=2000`. These pauses use nonblocking behaviour
+waits and do not delay an active reservation, purchase, or return. The startup pause
+is added to the simulation timeout; for long cycle delays, increase
+`--simulation.timeout-seconds=120`. Normal mode has no demo delays.
+
 The simulation currently uses `data/cars.json`. If it is absent, run the importer first. Useful
 settings are available under `simulation.*` in `application.properties`.
 

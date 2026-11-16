@@ -13,6 +13,7 @@ import dev.bykowski.ssisw.market.SellerReputation;
 import dev.bykowski.ssisw.market.ReturnResult;
 import dev.bykowski.ssisw.market.Transaction;
 import dev.bykowski.ssisw.simulation.SimulationObserver;
+import dev.bykowski.ssisw.simulation.DemoPacing;
 import jade.core.AID;
 import jade.core.Agent;
 import jade.core.behaviours.Behaviour;
@@ -43,6 +44,7 @@ public class BuyerAgent extends Agent {
     private int targetPurchases;
     private long discoveryDeadline;
     private boolean demonstrateReturn;
+    private DemoPacing demoPacing;
 
     @Override
     protected void setup() {
@@ -53,6 +55,7 @@ public class BuyerAgent extends Agent {
         expectedSellerCount = (int) arguments[3];
         targetPurchases = (int) arguments[4];
         demonstrateReturn = (boolean) arguments[5] && "Buyer01".equals(getLocalName());
+        demoPacing = (DemoPacing) arguments[6];
         discoveryDeadline = System.currentTimeMillis() + 5_000;
 
         addBehaviour(new TickerBehaviour(this, 100) {
@@ -125,6 +128,7 @@ public class BuyerAgent extends Agent {
         private static final int WAITING_FOR_TREND = 8;
         private static final int WAITING_TO_RETRY = 9;
         private static final int FINISHED = 10;
+        private static final int WAITING_FOR_DEMO_SEARCH = 11;
         private static final int MAX_RESERVATION_ATTEMPTS = 50;
 
         private final List<AID> sellers;
@@ -142,6 +146,7 @@ public class BuyerAgent extends Agent {
         private int completedPurchases;
         private long deadline;
         private long retryAt;
+        private long demoSearchAt;
         private CarOffer selectedOffer;
         private AID selectedSeller;
         private SearchCriteria activeCriteria;
@@ -162,7 +167,7 @@ public class BuyerAgent extends Agent {
             this.negotiator = negotiator;
             this.reputationAgent = reputationAgent;
             this.trendAgent = trendAgent;
-            sendSearch();
+            scheduleSearch(demoPacing.startupDelayMillis());
         }
 
         @Override
@@ -178,6 +183,7 @@ public class BuyerAgent extends Agent {
                 case WAITING_FOR_RATING -> receiveRating();
                 case WAITING_FOR_TREND -> receiveTrend();
                 case WAITING_TO_RETRY -> retrySearchWhenReady();
+                case WAITING_FOR_DEMO_SEARCH -> demoSearchWhenReady();
                 default -> block();
             }
         }
@@ -202,6 +208,24 @@ public class BuyerAgent extends Agent {
             observer.searchStarted(getLocalName(), sellers.size());
             deadline = System.currentTimeMillis() + 1_500;
             state = WAITING_FOR_OFFERS;
+        }
+
+        private void scheduleSearch(long delayMillis) {
+            if (delayMillis == 0) {
+                sendSearch();
+            } else {
+                demoSearchAt = System.currentTimeMillis() + delayMillis;
+                state = WAITING_FOR_DEMO_SEARCH;
+            }
+        }
+
+        private void demoSearchWhenReady() {
+            long waitMillis = demoSearchAt - System.currentTimeMillis();
+            if (waitMillis > 0) {
+                block(waitMillis);
+            } else {
+                sendSearch();
+            }
         }
 
         private void collectOffers() {
@@ -497,7 +521,7 @@ public class BuyerAgent extends Agent {
                 account.refund(result.transaction().totalCostPln());
                 observer.returnCompleted(result, account.budgetPln());
                 attempts = 0;
-                sendSearch();
+                scheduleSearch(demoPacing.cycleDelayMillis());
                 return;
             }
             completeKeptPurchase();
@@ -566,7 +590,7 @@ public class BuyerAgent extends Agent {
             }
             if (completedPurchases < targetPurchases) {
                 attempts = 0;
-                sendSearch();
+                scheduleSearch(demoPacing.cycleDelayMillis());
             } else {
                 finish();
             }
@@ -591,8 +615,8 @@ public class BuyerAgent extends Agent {
         private void retryOrFinish() {
             if (attempts < MAX_RESERVATION_ATTEMPTS) {
                 retryAt = System.currentTimeMillis()
-                        + 50
-                        + Math.floorMod(getLocalName().hashCode() + attempts * 31, 100);
+                        + Math.max(demoPacing.cycleDelayMillis(),
+                                50 + Math.floorMod(getLocalName().hashCode() + attempts * 31, 100));
                 state = WAITING_TO_RETRY;
             } else {
                 fail("reservation or advisor retry limit exceeded");

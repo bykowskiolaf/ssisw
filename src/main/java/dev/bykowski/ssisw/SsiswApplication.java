@@ -7,7 +7,10 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class SsiswApplication {
 
     public static void main(String[] args) {
-        SpringApplication.run(SsiswApplication.class, args);
+        SpringApplication application = new SpringApplication(SsiswApplication.class);
+        // JADE's optional RMA window needs AWT enabled before Boot configures the JVM.
+        application.setHeadless(false);
+        application.run(args);
     }
 
 }
