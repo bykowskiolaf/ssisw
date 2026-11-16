@@ -122,6 +122,14 @@ bash kibana/import-dashboard.sh
 
 See [`kibana/README.md`](kibana/README.md) for dashboard contents and run filtering.
 
+Car documents track `currentTransactionId`; a delayed return only changes availability
+if that transaction still owns the car, so it cannot overwrite a later resale.
+With Elasticsearch running locally, run the persistence regression test alongside the suite:
+
+```shell
+ELASTICSEARCH_INTEGRATION_TEST=true ./gradlew test --no-daemon
+```
+
 Stop the local services without deleting their data:
 
 ```shell

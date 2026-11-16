@@ -6,6 +6,7 @@ import co.elastic.clients.elasticsearch.core.BulkRequest;
 import co.elastic.clients.elasticsearch.core.BulkResponse;
 import co.elastic.clients.elasticsearch.core.bulk.BulkResponseItem;
 import co.elastic.clients.elasticsearch.indices.CreateIndexRequest;
+import co.elastic.clients.json.JsonData;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.bykowski.ssisw.car.Car;
@@ -52,6 +53,9 @@ public class ElasticsearchMarketplaceStore implements MarketplaceEventSink {
             ensureIndex(carsIndex, "elasticsearch/cars-index.json");
             ensureIndex(transactionsIndex, "elasticsearch/transactions-index.json");
             client.indices().putMapping(mapping -> mapping
+                    .index(carsIndex)
+                    .properties("currentTransactionId", property -> property.keyword(keyword -> keyword)));
+            client.indices().putMapping(mapping -> mapping
                     .index(transactionsIndex)
                     .properties("status", property -> property.keyword(keyword -> keyword))
                     .properties("returnedAtEpochMillis", property -> property.date(
@@ -82,7 +86,7 @@ public class ElasticsearchMarketplaceStore implements MarketplaceEventSink {
                 client.update(update -> update
                                 .index(carsIndex)
                                 .id(documentId(transaction.carId()))
-                                .doc(Map.of("status", "SOLD")),
+                                .doc(Map.of("status", "SOLD", "currentTransactionId", transaction.id())),
                         Map.class);
                 return;
             } catch (IOException | ElasticsearchException exception) {
@@ -109,7 +113,17 @@ public class ElasticsearchMarketplaceStore implements MarketplaceEventSink {
                 client.update(update -> update
                                 .index(carsIndex)
                                 .id(documentId(transaction.carId()))
-                                .doc(Map.of("status", "AVAILABLE")),
+                                .retryOnConflict(3)
+                                // A newer sale can be persisted before this return's buyer acknowledges it.
+                                .script(script -> script
+                                        .source(source -> source.scriptString("""
+                                                if (ctx._source.currentTransactionId == params.transactionId) {
+                                                    ctx._source.status = 'AVAILABLE';
+                                                } else {
+                                                    ctx.op = 'noop';
+                                                }
+                                                """))
+                                        .params("transactionId", JsonData.of(transaction.id()))),
                         Map.class);
                 return;
             } catch (IOException | ElasticsearchException exception) {

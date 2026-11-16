@@ -22,6 +22,7 @@
       "transmission": { "type": "keyword" },
       "drivetrain": { "type": "keyword" },
       "status": { "type": "keyword" },
+      "currentTransactionId": { "type": "keyword" },
       "dataSource": { "type": "keyword", "ignore_above": 512 }
     }
   }
